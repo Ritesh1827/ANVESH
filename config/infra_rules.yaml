@@ -1,0 +1,47 @@
+# ECDAT Infrastructure Cipher Rules — Infrastructure Surface (PRD §5 stage 2)
+#
+# PRD §5 stage 2: "a TLS/SSH probe (infrastructure)".
+# Maps negotiated TLS cipher-suite names to canonical algorithm records.
+# Config-driven like every other surface — the infra probe matches ONLY
+# these patterns. Purpose drives the PQC mapping downstream:
+#   key-exchange ciphers (RSA/DHE/ECDHE) → key_establishment → ML-KEM
+#   legacy/weak suites                   → their own weak algorithm record
+
+version: "1.0"
+
+infra_rules:
+
+  - rule_id: "I-001"
+    description: "TLS 1.3 modern cipher suite"
+    pattern: "TLS_AES_|TLS_CHACHA20|TLS_AES_128_GCM|TLS_AES_256_GCM"
+    algorithm: "AES-256-GCM"
+    purpose: "encryption"
+    confidence: 0.90
+
+  - rule_id: "I-002"
+    description: "ECDHE key exchange cipher suite"
+    pattern: "ECDHE|ECDH"
+    algorithm: "ECDSA-P256"
+    purpose: "key_establishment"
+    confidence: 0.88
+
+  - rule_id: "I-003"
+    description: "DHE key exchange cipher suite"
+    pattern: "(?<!EC)DHE|DH_anon|DH-DSS"
+    algorithm: "DH-2048"
+    purpose: "key_establishment"
+    confidence: 0.86
+
+  - rule_id: "I-004"
+    description: "RSA key exchange cipher suite"
+    pattern: "\\bRSA\\b|AES.*SHA|CAMELLIA|SEED"
+    algorithm: "RSA-2048"
+    purpose: "key_establishment"
+    confidence: 0.84
+
+  - rule_id: "I-005"
+    description: "Legacy / weak cipher suite (RC4, DES, 3DES, MD5, export)"
+    pattern: "RC4|DES|3DES|MD5|EXPORT|NULL|anon"
+    algorithm: "RC4"
+    purpose: "encryption"
+    confidence: 0.90

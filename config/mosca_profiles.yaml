@@ -1,0 +1,213 @@
+# ECDAT Mosca Risk Profiles
+#
+# Defines default X, Y, Z parameter values for the Mosca Risk Engine.
+#
+# Mosca's theorem:  X + Y > Z  →  urgency_flag = True
+#   X = years the data/session protected by this asset must remain confidential
+#   Y = years required to complete migration for this asset type
+#   Z = years until a cryptographically relevant quantum computer (CRQC) exists
+#
+# These are DEFAULTS used when the scanned system has no owner-provided
+# values. The Mosca engine accepts per-asset overrides.
+#
+# Rationale for Z=10 (threat timeline):
+#   NIST, NSA, BSI, and ANSSI guidance (2022-2024) suggest a CRQC
+#   capable of breaking RSA-2048/ECDSA-256 may emerge within 10-15 years.
+#   Z=10 is the conservative (more urgent) estimate used here to avoid
+#   under-weighting urgency in the prototype. Organisations with access to
+#   classified threat intelligence should adjust this value.
+#
+# Rationale for Y values (migration time):
+#   NIST NCCoE PQC Migration project and industry surveys indicate:
+#     - Simple library upgrade:      1-2 years
+#     - Protocol-level change:       2-3 years
+#     - Hardware/HSM replacement:    3-5 years
+#     - Enterprise-wide PKI refresh: 3-5 years
+#
+# HNDL (Harvest-Now-Decrypt-Later) indicators:
+#   An asset is flagged for HNDL when its data has a long confidentiality
+#   shelf life AND the algorithm is quantum-vulnerable. Attackers may be
+#   harvesting ciphertext today for decryption when a CRQC arrives.
+
+version: "1.0"
+
+# ── Global threat timeline ────────────────────────────────────────────────────
+
+threat_timeline:
+  # Z: Years until a cryptographically relevant quantum computer
+  # Conservative estimate — use lower bound for maximum urgency
+  z_years_conservative: 10
+  z_years_moderate: 15
+  z_years_optimistic: 20
+  # Default used by the engine unless overridden
+  z_years_default: 10
+
+# ── Data shelf life defaults (X) by asset classification and sensitivity ──────
+#
+# X is how long the data protected by this asset must remain confidential.
+# Longer shelf life = higher urgency.
+
+data_shelf_life:
+  # Infrastructure / TLS / session keys — short-lived data
+  - classification: "infrastructure"
+    sensitivity: "internal"
+    x_years: 1
+  - classification: "infrastructure"
+    sensitivity: "confidential"
+    x_years: 3
+  - classification: "infrastructure"
+    sensitivity: "high"
+    x_years: 5
+  - classification: "infrastructure"
+    sensitivity: "critical"
+    x_years: 10
+
+  # Application cryptography — typically protects longer-lived data
+  - classification: "application"
+    sensitivity: "public"
+    x_years: 1
+  - classification: "application"
+    sensitivity: "internal"
+    x_years: 3
+  - classification: "application"
+    sensitivity: "confidential"
+    x_years: 7
+  - classification: "application"
+    sensitivity: "high"
+    x_years: 15   # matches PRD §9 sample
+  - classification: "application"
+    sensitivity: "critical"
+    x_years: 20
+
+# ── Migration time defaults (Y) by algorithm and migration type ───────────────
+#
+# Y is the estimated time to complete migration for this asset type.
+# Higher complexity = longer migration time = higher urgency contribution.
+
+migration_time:
+  - algorithm_pattern: "RSA"
+    migration_type: "key_establishment"
+    y_years: 2
+    notes: "Library update + protocol negotiation change; moderate effort."
+
+  - algorithm_pattern: "RSA"
+    migration_type: "digital_signature"
+    y_years: 3
+    notes: "Certificate chain updates, CA coordination, HSM support required."
+
+  - algorithm_pattern: "ECDSA"
+    migration_type: "digital_signature"
+    y_years: 3
+
+  - algorithm_pattern: "EC"
+    migration_type: "key_establishment"
+    y_years: 2
+
+  - algorithm_pattern: "DH"
+    migration_type: "key_establishment"
+    y_years: 2
+
+  - algorithm_pattern: "MD5"
+    migration_type: "hashing"
+    y_years: 1
+    notes: "Drop-in SHA-256 replacement; low migration effort."
+
+  - algorithm_pattern: "SHA-1"
+    migration_type: "hashing"
+    y_years: 1
+
+  - algorithm_pattern: "DES"
+    migration_type: "encryption"
+    y_years: 1
+    notes: "AES drop-in replacement available; urgent but fast."
+
+  - algorithm_pattern: "3DES"
+    migration_type: "encryption"
+    y_years: 1
+
+  - algorithm_pattern: "RC4"
+    migration_type: "encryption"
+    y_years: 1
+
+  - algorithm_pattern: "AES-128"
+    migration_type: "encryption"
+    y_years: 1
+    notes: "Key size upgrade; minimal effort."
+
+  - algorithm_pattern: "TLS"
+    migration_type: "key_establishment"
+    y_years: 2
+    notes: "Protocol version upgrade; server + client coordination needed."
+
+  # Default fallback for unknown algorithm types
+  - algorithm_pattern: "*"
+    migration_type: "*"
+    y_years: 2
+
+# ── HNDL classification rules ─────────────────────────────────────────────────
+#
+# An asset is flagged hndl_flag=True when:
+#   1. The algorithm is quantum-vulnerable (not just classically broken), AND
+#   2. The data it protects has a shelf life long enough that it may still
+#      need to be secret when a CRQC arrives (X >= hndl_threshold_years), AND
+#   3. The purpose involves confidentiality (key_establishment or encryption)
+#
+# Purpose-based HNDL rules:
+#   key_establishment: ALWAYS hndl_candidate (encrypted sessions/keys harvested now)
+#   encryption:        ALWAYS hndl_candidate
+#   digital_signature: hndl_candidate only if x >= 5 (signed data long-lived)
+#   hashing:           NOT hndl_candidate (hashes don't protect confidentiality)
+#   mac:               NOT hndl_candidate
+
+hndl_rules:
+  hndl_threshold_x_years: 3   # Minimum X for HNDL concern
+  hndl_purposes:
+    - "key_establishment"
+    - "encryption"
+  hndl_signature_threshold_x_years: 5   # Longer threshold for signatures
+
+# ── Priority assignment rules ─────────────────────────────────────────────────
+#
+# DOCUMENTATION ONLY — the authoritative priority logic is implemented in
+# engines/mosca_engine.py:_assign_priority(). This section documents the
+# intended rules so they can be reviewed alongside the code. If you modify
+# this section, update _assign_priority() to match, and vice versa.
+#
+# Priority is assigned AFTER the Mosca calculation, combining:
+#   - urgency_flag (X + Y > Z)
+#   - hndl_flag
+#   - classical_broken (already broken without quantum)
+#
+# P1 = Critical: immediate action required
+# P2 = High:     plan within current cycle
+# P3 = Medium:   include in next migration wave
+# P4 = Low:      monitor, no immediate action
+
+priority_rules:
+  - condition: "classical_broken"
+    priority: "P1"
+    rationale: "Algorithm is already broken classically — immediate replacement required."
+
+  - condition: "urgency_flag AND hndl_flag"
+    priority: "P1"
+    rationale: "X+Y>Z and active HNDL exposure — critical quantum+harvest risk."
+
+  - condition: "urgency_flag AND NOT hndl_flag"
+    priority: "P2"
+    rationale: "X+Y>Z but no current HNDL exposure — high priority migration."
+
+  - condition: "NOT urgency_flag AND hndl_flag"
+    priority: "P2"
+    rationale: "Not yet urgent by Mosca but HNDL exposure warrants early action."
+
+  - condition: "NOT urgency_flag AND NOT hndl_flag AND quantum_vulnerable"
+    priority: "P3"
+    rationale: "Quantum-vulnerable but no current urgency — include in migration planning."
+
+  - condition: "NOT quantum_vulnerable AND quantum_weakened"
+    priority: "P3"
+    rationale: "Algorithm weakened (not broken) by quantum — upgrade recommended."
+
+  - condition: "NOT quantum_vulnerable AND NOT quantum_weakened"
+    priority: "P4"
+    rationale: "No quantum risk — monitor only."

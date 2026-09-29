@@ -1,0 +1,155 @@
+# ECDAT Binary Fingerprint Rules — Binary/Libraries Surface (PRD §5 stage 2)
+#
+# PRD §5 stage 2: "binary fingerprinting (compiled artefacts)".
+# PRD §8: "Keeps algorithm-to-PQC mappings and ownership mappings as editable
+#          data, not hardcoded logic." The same discipline applies here: the
+#          binary scanner matches ONLY the patterns listed below. Nothing is
+#          hardcoded in binary_scanner.py.
+#
+# Fields per fingerprint:
+#   rule_id:     Unique identifier (B-NNN format)
+#   description: Human-readable description of the fingerprint
+#   pattern:     ASCII regex matched against ELF symbol/import strings or
+#                raw printable strings from the binary
+#   algorithm:   Canonical algorithm name (must match pqc_mappings.yaml patterns)
+#   purpose:     CryptoPurpose enum value (drives PQC mapping downstream)
+#   confidence:  Base confidence [0.0–1.0]. Symbol-table hits score higher
+#                than raw-string hits because the matcher prefers .dynsym.
+#
+# Purpose discipline (same as source rules):
+#   RSA / EC / DH in import tables   → key_establishment
+#   RSA/ECDSA sign/verify symbols    → digital_signature
+#   AES/DES/ChaCha ciphers           → encryption
+#   SHA/MD5 digests                  → hashing
+
+version: "1.0"
+
+fingerprints:
+
+  # ── OpenSSL provider / version markers ─────────────────────────────────────
+
+  - rule_id: "B-001"
+    description: "OpenSSL libcrypto linkage marker"
+    pattern: "libcrypto\\.so|libcrypto-[0-9]|LIBCRYPTO"
+    algorithm: "OpenSSL-libcrypto"
+    purpose: "encryption"
+    confidence: 0.80
+
+  - rule_id: "B-002"
+    description: "OpenSSL version string embedded in binary"
+    pattern: "OpenSSL [0-9]+\\.[0-9]+\\.[0-9]+[a-z]?"
+    algorithm: "OpenSSL-version"
+    purpose: "encryption"
+    confidence: 0.75
+
+  # ── RSA ────────────────────────────────────────────────────────────────────
+
+  - rule_id: "B-010"
+    description: "RSA key generation / key symbols"
+    pattern: "RSA_generate_key|RSA_new|RSA_private_(encrypt|decrypt)|RSA_public_(encrypt|decrypt)|rsa_generate"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.90
+
+  - rule_id: "B-011"
+    description: "RSA sign/verify symbols"
+    pattern: "RSA_sign|RSA_verify|RSA_padding|rsa_(sign|verify)"
+    algorithm: "RSA"
+    purpose: "digital_signature"
+    confidence: 0.90
+
+  # ── Elliptic curve ─────────────────────────────────────────────────────────
+
+  - rule_id: "B-020"
+    description: "EC key generation symbols"
+    pattern: "EC_KEY_new|EC_KEY_generate_key|ECDH_compute_key|ECDSA_sign|ECDSA_verify|ecdsa|ecdh"
+    algorithm: "ECDSA"
+    purpose: "digital_signature"
+    confidence: 0.88
+
+  # ── Symmetric ciphers ──────────────────────────────────────────────────────
+
+  - rule_id: "B-030"
+    description: "AES cipher symbols"
+    pattern: "AES_(encrypt|decrypt|set_encrypt_key|set_decrypt_key)|EVP_aes_[0-9]+|aes_[0-9]+_[a-z]+"
+    algorithm: "AES"
+    purpose: "encryption"
+    confidence: 0.88
+
+  - rule_id: "B-031"
+    description: "DES cipher symbols"
+    pattern: "DES_(encrypt|decrypt|set_key)|EVP_des_ede3|des_ede"
+    algorithm: "DES"
+    purpose: "encryption"
+    confidence: 0.88
+
+  - rule_id: "B-032"
+    description: "ChaCha20-Poly1305 symbols"
+    pattern: "ChaCha20|chacha20_poly1305|EVP_chacha20|Poly1305"
+    algorithm: "ChaCha20-Poly1305"
+    purpose: "encryption"
+    confidence: 0.85
+
+  # ── Hash functions ─────────────────────────────────────────────────────────
+
+  - rule_id: "B-040"
+    description: "SHA-2 digest symbols"
+    pattern: "SHA256_Init|SHA256_Update|SHA512_Init|SHA512_Update|EVP_sha(256|384|512)"
+    algorithm: "SHA-256"
+    purpose: "hashing"
+    confidence: 0.88
+
+  - rule_id: "B-041"
+    description: "MD5 digest symbols (weak hash)"
+    pattern: "MD5_Init|MD5_Update|EVP_md5"
+    algorithm: "MD5"
+    purpose: "hashing"
+    confidence: 0.90
+
+  - rule_id: "B-042"
+    description: "SHA-1 digest symbols (weak hash)"
+    pattern: "SHA1_Init|SHA1_Update|EVP_sha1"
+    algorithm: "SHA-1"
+    purpose: "hashing"
+    confidence: 0.90
+
+  # ── HMAC / KDF ─────────────────────────────────────────────────────────────
+
+  - rule_id: "B-050"
+    description: "HMAC symbols"
+    pattern: "HMAC_Init|HMAC_Update|HMAC_CTX"
+    algorithm: "HMAC"
+    purpose: "mac"
+    confidence: 0.88
+
+  - rule_id: "B-051"
+    description: "PBKDF2 / HKDF key derivation symbols"
+    pattern: "PKCS5_PBKDF2|HKDF|EVP_PBE|PBKDF2"
+    algorithm: "PBKDF2"
+    purpose: "key_derivation"
+    confidence: 0.85
+
+  # ── TLS ────────────────────────────────────────────────────────────────────
+
+  - rule_id: "B-060"
+    description: "TLS/SSL context symbols"
+    pattern: "SSL_CTX_new|SSL_connect|SSL_accept|TLS_method|TLS_client_method|TLS_server_method"
+    algorithm: "TLS-1.2"
+    purpose: "key_establishment"
+    confidence: 0.85
+
+  # ── Windows CNG / CryptoAPI import names ───────────────────────────────────
+
+  - rule_id: "B-070"
+    description: "Windows CNG bcrypt imports"
+    pattern: "BCrypt(GenerateSymmetricKey|Encrypt|Decrypt|SignHash|VerifySignature)"
+    algorithm: "AES"
+    purpose: "encryption"
+    confidence: 0.80
+
+  - rule_id: "B-071"
+    description: "Windows CryptoAPI imports"
+    pattern: "CryptAcquireContext|CryptEncrypt|CryptDecrypt|CryptSignHash|CryptVerifySignature"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.80

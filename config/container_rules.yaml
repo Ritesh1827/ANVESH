@@ -1,0 +1,63 @@
+# ECDAT Container Manifest Rules — Containers Surface (PRD §5 stage 2)
+#
+# PRD §5 stage 2: "layer inspection (containers)".
+# PRD §11: "Container analysis covers layer/package inspection, not deep
+#           binary analysis of every packaged artifact."
+#
+# These rules match pinned cryptographic libraries inside unpacked image
+# contexts / build contexts (Dockerfile, requirements.txt, package.json,
+# go.mod, Cargo.toml ...). Same config-driven discipline as every other
+# surface: the scanner matches ONLY these patterns.
+
+version: "1.0"
+
+container_rules:
+
+  - rule_id: "T-001"
+    description: "OpenSSL base image / package"
+    pattern: "openssl|libssl|libcrypto"
+    algorithm: "OpenSSL-libcrypto"
+    purpose: "encryption"
+    confidence: 0.78
+
+  - rule_id: "T-002"
+    description: "Python cryptography package pinned"
+    pattern: "\\bcryptography\\b|pycryptodome|pycrypto|pyopenssl"
+    algorithm: "OpenSSL-libcrypto"
+    purpose: "encryption"
+    confidence: 0.78
+
+  - rule_id: "T-003"
+    description: "JavaScript crypto library pinned"
+    pattern: "\\bnode-forge\\b|\\bsjcl\\b|\\bcryptokit\\b|\\blibsodium-wrappers\\b"
+    algorithm: "AES"
+    purpose: "encryption"
+    confidence: 0.72
+
+  - rule_id: "T-004"
+    description: "Java crypto library pinned"
+    pattern: "bouncy-?castle|bcprov|bcpkix"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.74
+
+  - rule_id: "T-005"
+    description: "Go crypto dependency pinned"
+    pattern: "golang\\.org/x/crypto|github\\.com/.*(tls|crypto)"
+    algorithm: "TLS-1.2"
+    purpose: "key_establishment"
+    confidence: 0.72
+
+  - rule_id: "T-006"
+    description: "Rust crypto crate pinned"
+    pattern: "\\brustls\\b|\\bring\\b|\\brsa\\b|\\bed25519-dalek\\b|\\baes-gcm\\b"
+    algorithm: "AES"
+    purpose: "encryption"
+    confidence: 0.72
+
+  - rule_id: "T-007"
+    description: "Hash utility pinned in image"
+    pattern: "\\bmd5sum\\b|\\bsha1sum\\b"
+    algorithm: "MD5"
+    purpose: "hashing"
+    confidence: 0.70

@@ -1,0 +1,458 @@
+# ECDAT PQC Mappings Configuration
+# Algorithm + Purpose → NIST PQC Replacement
+#
+# This file is the SOLE source of algorithm-to-PQC mapping logic.
+# The Recommendation Engine reads this file; NO mapping logic is hardcoded.
+#
+# PRD §8: "Keeps algorithm-to-PQC mappings as editable data, not hardcoded
+#          logic — important as NIST standards evolve."
+#
+# PRD §5 stage 10 constraints enforced here:
+#   1. Purpose-aware mapping is MANDATORY:
+#      - key_establishment  → ML-KEM  (FIPS 203)
+#      - digital_signature  → ML-DSA  (FIPS 204) or SLH-DSA (FIPS 205)
+#   2. Standardized algorithms (FIPS 203/204/205) are SEPARATE from
+#      algorithms still under standardization (HQC, Falcon).
+#      Never recommend under-standardization algorithms as primary.
+#   3. Hybrid (classical + PQC) is the DEFAULT migration path.
+#      Pure-PQC is only for greenfield systems.
+#   4. Output is strictly read-only / advisory.
+#
+# Standardization status values:
+#   standardized          — NIST-finalized: FIPS 203 / 204 / 205
+#   under_standardization — Still in NIST process (e.g. HQC round 4)
+#   classical             — Classical algorithm (this is the source, not a recommendation)
+#   deprecated            — Broken / formally withdrawn
+
+version: "1.0"
+
+# ── Quantum-vulnerable algorithms requiring PQC migration ─────────────────────
+#
+# Each entry maps one (algorithm_pattern, purpose) pair to a recommendation.
+# algorithm_pattern: prefix match against the normalised algorithm name
+#                    (case-insensitive). E.g. "RSA" matches "RSA-2048", "RSA-4096".
+# purpose:           exact CryptoPurpose enum value, or "any" to match all purposes.
+
+mappings:
+
+  # ── RSA ─────────────────────────────────────────────────────────────────────
+
+  - algorithm_pattern: "RSA"
+    purpose: "key_establishment"
+    quantum_vulnerable: true
+    primary_replacement: "ML-KEM (FIPS 203)"
+    primary_fips: "FIPS 203"
+    primary_status: "standardized"
+    migration_path_type: "hybrid"
+    migration_path_description: "hybrid: X25519 + ML-KEM-768"
+    alternative_replacement: "ML-KEM-1024 (FIPS 203)"
+    notes: >
+      RSA key encapsulation/exchange is broken by Shor's algorithm. ML-KEM
+      (formerly CRYSTALS-Kyber) is the NIST-finalized replacement. Use hybrid
+      mode during migration to maintain classical fallback.
+    hndl_risk: "critical"
+    affected_protocols: ["TLS 1.2", "TLS 1.3", "PKCS#7", "CMS", "S/MIME"]
+
+  - algorithm_pattern: "RSA"
+    purpose: "digital_signature"
+    quantum_vulnerable: true
+    primary_replacement: "ML-DSA (FIPS 204)"
+    primary_fips: "FIPS 204"
+    primary_status: "standardized"
+    migration_path_type: "hybrid"
+    migration_path_description: "hybrid: ECDSA-P256 + ML-DSA-65"
+    alternative_replacement: "SLH-DSA (FIPS 205)"
+    notes: >
+      RSA signatures are broken by Shor's algorithm. ML-DSA (formerly
+      CRYSTALS-Dilithium) is the primary NIST-finalized replacement.
+      SLH-DSA (SPHINCS+) is an alternative with different trade-offs
+      (stateless hash-based, larger signatures).
+    hndl_risk: "high"
+    affected_protocols: ["TLS 1.2", "TLS 1.3", "X.509", "JWT", "code signing"]
+
+  - algorithm_pattern: "RSA"
+    purpose: "encryption"
+    quantum_vulnerable: true
+    primary_replacement: "ML-KEM (FIPS 203)"
+    primary_fips: "FIPS 203"
+    primary_status: "standardized"
+    migration_path_type: "hybrid"
+    migration_path_description: "hybrid: X25519 + ML-KEM-768"
+    notes: >
+      RSA encryption (OAEP, PKCS1v15) is broken by Shor's algorithm.
+      Replace with ML-KEM for key encapsulation + symmetric encryption.
+    hndl_risk: "critical"
+    affected_protocols: ["TLS 1.2", "PKCS#7", "S/MIME", "PGP"]
+
+  # ── ECDSA / EC ────────────────────────────────────────────────────────────
+
+  - algorithm_pattern: "ECDSA"
+    purpose: "digital_signature"
+    quantum_vulnerable: true
+    primary_replacement: "ML-DSA (FIPS 204)"
+    primary_fips: "FIPS 204"
+    primary_status: "standardized"
+    migration_path_type: "hybrid"
+    migration_path_description: "hybrid: ECDSA-P256 + ML-DSA-44"
+    alternative_replacement: "SLH-DSA (FIPS 205)"
+    notes: >
+      ECDSA is broken by Shor's algorithm (discrete logarithm on elliptic curves).
+      ML-DSA-44 corresponds to NIST security level 2 (equivalent to AES-128).
+      ML-DSA-65 for level 3, ML-DSA-87 for level 5.
+    hndl_risk: "high"
+    affected_protocols: ["TLS 1.3", "X.509", "JWT", "DNSSEC", "code signing"]
+
+  - algorithm_pattern: "EC"
+    purpose: "key_establishment"
+    quantum_vulnerable: true
+    primary_replacement: "ML-KEM (FIPS 203)"
+    primary_fips: "FIPS 203"
+    primary_status: "standardized"
+    migration_path_type: "hybrid"
+    migration_path_description: "hybrid: X25519 + ML-KEM-768"
+    notes: >
+      ECDH / ECDHE key exchange is broken by Shor's algorithm.
+      ML-KEM (CRYSTALS-Kyber) is the NIST-finalized replacement.
+    hndl_risk: "critical"
+    affected_protocols: ["TLS 1.3", "Signal Protocol", "Noise Protocol"]
+
+  # ── Diffie-Hellman ─────────────────────────────────────────────────────────
+
+  - algorithm_pattern: "DH"
+    purpose: "key_establishment"
+    quantum_vulnerable: true
+    primary_replacement: "ML-KEM (FIPS 203)"
+    primary_fips: "FIPS 203"
+    primary_status: "standardized"
+    migration_path_type: "hybrid"
+    migration_path_description: "hybrid: X25519 + ML-KEM-768"
+    hndl_risk: "critical"
+    affected_protocols: ["TLS 1.2", "IKEv2", "SSH"]
+
+  # ── MD5 ───────────────────────────────────────────────────────────────────
+
+  - algorithm_pattern: "MD5"
+    purpose: "hashing"
+    quantum_vulnerable: true
+    classical_broken: true
+    primary_replacement: "SHA-256 (FIPS 180-4) or SHA3-256 (FIPS 202)"
+    primary_fips: "FIPS 180-4"
+    primary_status: "standardized"
+    migration_path_type: "classical_upgrade"
+    migration_path_description: "replace: MD5 → SHA-256 or SHA3-256"
+    notes: >
+      MD5 is classically broken (collision attacks). Replace immediately
+      regardless of quantum timeline. SHA-256 is quantum-safe for hashing
+      (Grover's algorithm only halves effective security to 128 bits).
+    hndl_risk: "high"
+    affected_protocols: ["TLS", "certificate fingerprinting", "file integrity"]
+
+  # ── SHA-1 ─────────────────────────────────────────────────────────────────
+
+  - algorithm_pattern: "SHA-1"
+    purpose: "hashing"
+    quantum_vulnerable: true
+    classical_broken: true
+    primary_replacement: "SHA-256 (FIPS 180-4) or SHA3-256 (FIPS 202)"
+    primary_fips: "FIPS 180-4"
+    primary_status: "standardized"
+    migration_path_type: "classical_upgrade"
+    migration_path_description: "replace: SHA-1 → SHA-256 or SHA3-256"
+    notes: >
+      SHA-1 is deprecated for security use (SHAttered collision attack, 2017).
+      SHA-256 provides 128-bit post-quantum security margin (sufficient).
+    hndl_risk: "medium"
+    affected_protocols: ["TLS", "X.509", "Git", "certificate fingerprinting"]
+
+  # ── DES / 3DES ────────────────────────────────────────────────────────────
+
+  - algorithm_pattern: "DES"
+    purpose: "encryption"
+    quantum_vulnerable: true
+    classical_broken: true
+    primary_replacement: "AES-256-GCM (FIPS 197)"
+    primary_fips: "FIPS 197"
+    primary_status: "standardized"
+    migration_path_type: "classical_upgrade"
+    migration_path_description: "replace: DES → AES-256-GCM"
+    notes: >
+      DES has a 56-bit effective key length — broken by brute force since 1998.
+      3DES (TDEA) is also deprecated (NIST SP 800-131A Rev. 2).
+      Replace immediately with AES-256-GCM.
+    hndl_risk: "critical"
+    affected_protocols: ["TLS (legacy)", "PKCS#5", "legacy VPN"]
+
+  - algorithm_pattern: "3DES"
+    purpose: "encryption"
+    quantum_vulnerable: true
+    classical_broken: true
+    primary_replacement: "AES-256-GCM (FIPS 197)"
+    primary_fips: "FIPS 197"
+    primary_status: "standardized"
+    migration_path_type: "classical_upgrade"
+    migration_path_description: "replace: 3DES → AES-256-GCM"
+    hndl_risk: "critical"
+    affected_protocols: ["TLS (legacy)", "PKCS#5"]
+
+  # ── RC4 ───────────────────────────────────────────────────────────────────
+
+  - algorithm_pattern: "RC4"
+    purpose: "encryption"
+    quantum_vulnerable: true
+    classical_broken: true
+    primary_replacement: "AES-256-GCM (FIPS 197)"
+    primary_fips: "FIPS 197"
+    primary_status: "standardized"
+    migration_path_type: "classical_upgrade"
+    migration_path_description: "replace: RC4 → AES-256-GCM"
+    notes: >
+      RC4 is classically broken — prohibited in TLS since RFC 7465 (2015).
+      Replace immediately.
+    hndl_risk: "critical"
+    affected_protocols: ["TLS (prohibited)", "WEP", "legacy protocols"]
+
+  # ── AES (short key) ───────────────────────────────────────────────────────
+
+  - algorithm_pattern: "AES-128"
+    purpose: "encryption"
+    quantum_vulnerable: false
+    quantum_weakened: true
+    primary_replacement: "AES-256-GCM (FIPS 197)"
+    primary_fips: "FIPS 197"
+    primary_status: "standardized"
+    migration_path_type: "classical_upgrade"
+    migration_path_description: "upgrade: AES-128 → AES-256 (Grover security margin)"
+    notes: >
+      AES-128 provides only 64-bit post-quantum security (Grover halves key length).
+      NIST recommends AES-256 for long-term post-quantum security.
+      Not immediately broken — upgrade during next planned key rotation.
+    hndl_risk: "low"
+
+  - algorithm_pattern: "AES"
+    purpose: "encryption"
+    quantum_vulnerable: false
+    quantum_weakened: true
+    primary_replacement: "AES-256-GCM (FIPS 197)"
+    primary_fips: "FIPS 197"
+    primary_status: "standardized"
+    migration_path_type: "classical_upgrade"
+    migration_path_description: "upgrade: AES → AES-256-GCM (verify key size >= 256 bits)"
+    notes: >
+      AES with unknown or short key size. If key < 256 bits, upgrade to AES-256-GCM
+      for post-quantum security margin. Grover's algorithm halves effective key length.
+    hndl_risk: "low"
+
+  # ── TLS legacy ────────────────────────────────────────────────────────────
+
+  - algorithm_pattern: "TLS-1.0"
+    purpose: "key_establishment"
+    quantum_vulnerable: true
+    classical_broken: true
+    primary_replacement: "TLS 1.3 with ML-KEM key exchange"
+    primary_fips: "FIPS 203 (ML-KEM)"
+    primary_status: "standardized"
+    migration_path_type: "hybrid"
+    migration_path_description: "upgrade: TLS 1.0/1.1 → TLS 1.3 with X25519+ML-KEM-768"
+    notes: >
+      TLS 1.0 and 1.1 are deprecated (RFC 8996, 2021). TLS 1.3 with ML-KEM
+      key exchange provides both classical and post-quantum security.
+    hndl_risk: "high"
+    affected_protocols: ["HTTPS", "SMTP/TLS", "IMAP/TLS"]
+
+  - algorithm_pattern: "TLS-legacy"
+    purpose: "key_establishment"
+    quantum_vulnerable: true
+    classical_broken: true
+    primary_replacement: "TLS 1.3 with ML-KEM key exchange"
+    primary_fips: "FIPS 203 (ML-KEM)"
+    primary_status: "standardized"
+    migration_path_type: "hybrid"
+    migration_path_description: "upgrade: deprecated TLS API → TLS 1.3 with X25519+ML-KEM-768"
+    hndl_risk: "high"
+    affected_protocols: ["HTTPS", "SMTP/TLS"]
+
+  # ── DSA (signature-only — NEVER ML-KEM) ───────────────────────────────────
+  # DSA signs; it does not establish keys. Purpose-aware mapping sends DSA
+  # signatures to ML-DSA/SLH-DSA, exactly like ECDSA signatures. Mapping DSA
+  # to ML-KEM would be a category error (KEM ≠ signature).
+
+  - algorithm_pattern: "DSA"
+    purpose: "digital_signature"
+    quantum_vulnerable: true
+    primary_replacement: "ML-DSA (FIPS 204)"
+    primary_fips: "FIPS 204"
+    primary_status: "standardized"
+    migration_path_type: "hybrid"
+    migration_path_description: "hybrid: DSA + ML-DSA-65"
+    alternative_replacement: "SLH-DSA (FIPS 205)"
+    notes: >
+      DSA signatures are broken by Shor's algorithm. ML-DSA is the primary
+      NIST-finalized replacement. DSA must never map to ML-KEM (a KEM
+      cannot replace a signature scheme).
+    hndl_risk: "high"
+
+  - algorithm_pattern: "RSA"
+    purpose: "unknown"
+    quantum_vulnerable: true
+    primary_replacement: "ML-KEM (FIPS 203) if key establishment; ML-DSA (FIPS 204) if signature — confirm operation"
+    primary_fips: "FIPS 203 / FIPS 204"
+    primary_status: "standardized"
+    migration_path_type: "hybrid"
+    migration_path_description: "confirm RSA operation (encrypt vs sign), then follow the matching purpose mapping"
+    alternative_replacement: "SLH-DSA (FIPS 205) for signatures"
+    notes: >
+      RSA observed without operation evidence (allocation, type id, NID).
+      Do not assume key establishment: RSA signs as well as encrypts.
+      Enrichment should resolve the operation; this entry keeps the asset
+      actionable meanwhile without guessing the purpose.
+    hndl_risk: "high"
+
+  - algorithm_pattern: "ECDSA"
+    purpose: "unknown"
+    quantum_vulnerable: true
+    primary_replacement: "ML-DSA (FIPS 204) if signature; ML-KEM (FIPS 203) if key establishment — confirm operation"
+    primary_fips: "FIPS 204 / FIPS 203"
+    primary_status: "standardized"
+    migration_path_type: "hybrid"
+    migration_path_description: "confirm EC operation (sign vs ECDH), then follow the matching purpose mapping"
+    notes: >
+      EC key observed without operation evidence. ECDSA signs; ECDH agrees
+      keys — the migration target depends on which. Enrichment should
+      resolve it; this entry avoids a silent wrong-purpose default.
+    hndl_risk: "high"
+
+  - algorithm_pattern: "AES"
+    purpose: "unknown"
+    quantum_vulnerable: false
+    quantum_weakened: true
+    primary_replacement: "AES-256-GCM (FIPS 197)"
+    primary_fips: "FIPS 197"
+    primary_status: "standardized"
+    migration_path_type: "classical_upgrade"
+    migration_path_description: "confirm AES mode/key size; upgrade short keys to AES-256-GCM"
+    notes: >
+      AES observed without mode/key-size evidence (generic init context).
+      Symmetric cipher — Grover margin applies regardless of direction.
+    hndl_risk: "low"
+
+  # ── HMAC (informational — not quantum-vulnerable as primary concern) ───────
+
+  - algorithm_pattern: "HMAC"
+    purpose: "mac"
+    quantum_vulnerable: false
+    quantum_weakened: false
+    primary_replacement: "HMAC-SHA-256 or HMAC-SHA-384 (if not already)"
+    primary_fips: "FIPS 198-1"
+    primary_status: "standardized"
+    migration_path_type: "no_action"
+    migration_path_description: "verify inner hash is SHA-256 or stronger; no migration needed"
+    notes: >
+      HMAC with SHA-256 or stronger is quantum-safe for authentication.
+      Grover's algorithm does not break HMAC security for authentication tags.
+      Action only required if inner hash is MD5 or SHA-1.
+    hndl_risk: "none"
+
+  # ── SHA-256 / SHA-512 (safe — informational only) ─────────────────────────
+
+  - algorithm_pattern: "SHA-256"
+    purpose: "hashing"
+    quantum_vulnerable: false
+    quantum_weakened: false
+    primary_replacement: "SHA-256 (retain) or SHA3-256 for new systems"
+    primary_fips: "FIPS 180-4"
+    primary_status: "standardized"
+    migration_path_type: "no_action"
+    migration_path_description: "no migration required — SHA-256 provides 128-bit PQ security"
+    hndl_risk: "none"
+
+  - algorithm_pattern: "SHA-512"
+    purpose: "hashing"
+    quantum_vulnerable: false
+    quantum_weakened: false
+    primary_replacement: "SHA-512 (retain)"
+    primary_fips: "FIPS 180-4"
+    primary_status: "standardized"
+    migration_path_type: "no_action"
+    migration_path_description: "no migration required — SHA-512 provides 256-bit PQ security"
+    hndl_risk: "none"
+
+  # ── PQC-native algorithms (already quantum-safe — informational only) ──────
+  # liboqs OQS_* usage records algorithms that ARE the migration target.
+  # They must never produce migration noise: no_action, standardized,
+  # hndl none. Purpose-aware as always: KEM → key_establishment (FIPS 203
+  # family), signatures → their own FIPS family.
+
+  - algorithm_pattern: "ML-KEM"
+    purpose: "key_establishment"
+    quantum_vulnerable: false
+    quantum_weakened: false
+    primary_replacement: "ML-KEM (already PQC-native)"
+    primary_fips: "FIPS 203"
+    primary_status: "standardized"
+    migration_path_type: "no_action"
+    migration_path_description: "no migration required — ML-KEM is NIST-standardized PQC"
+    hndl_risk: "none"
+
+  - algorithm_pattern: "ML-DSA"
+    purpose: "digital_signature"
+    quantum_vulnerable: false
+    quantum_weakened: false
+    primary_replacement: "ML-DSA (already PQC-native)"
+    primary_fips: "FIPS 204"
+    primary_status: "standardized"
+    migration_path_type: "no_action"
+    migration_path_description: "no migration required — ML-DSA is NIST-standardized PQC"
+    hndl_risk: "none"
+
+  - algorithm_pattern: "SLH-DSA"
+    purpose: "digital_signature"
+    quantum_vulnerable: false
+    quantum_weakened: false
+    primary_replacement: "SLH-DSA (already PQC-native)"
+    primary_fips: "FIPS 205"
+    primary_status: "standardized"
+    migration_path_type: "no_action"
+    migration_path_description: "no migration required — SLH-DSA is NIST-standardized PQC"
+    hndl_risk: "none"
+
+  # ── Falcon (recorded, advisory-only — NOT FIPS-finalized) ──────────────────
+  # Falcon is detected (OQS_SIG_falcon_*) but sits on the FN-DSA track:
+  # per PRD §5 stage 10 it must never be recommended as a primary
+  # replacement. Recorded assets get an explicit "track, monitor" note
+  # rather than the generic UNKNOWN fallback, so the CBOM distinguishes
+  # "known algorithm awaiting finalization" from "unrecognized".
+
+  - algorithm_pattern: "Falcon"
+    purpose: "digital_signature"
+    quantum_vulnerable: false
+    quantum_weakened: false
+    classical_broken: false
+    primary_replacement: "Falcon (FN-DSA track — monitor, do not deploy as primary)"
+    primary_fips: "FN-DSA (pending)"
+    primary_status: "under_standardization"
+    migration_path_type: "no_action"
+    migration_path_description: "track FN-DSA finalization; prefer ML-DSA for new deployments"
+    hndl_risk: "none"
+
+# ── Algorithms still under NIST standardization (DO NOT recommend as primary) ─
+# Listed for documentation. The engine must NEVER surface these as primary
+# recommendations per PRD §5 stage 10.
+
+under_standardization:
+  - name: "HQC"
+    nist_round: 4
+    purpose: "key_establishment"
+    notes: "NIST Round 4 KEM. Not yet finalized. Do not use as primary replacement."
+
+  - name: "Falcon"
+    nist_round: "additional"
+    purpose: "digital_signature"
+    notes: >
+      NIST selected for standardization as FN-DSA but FIPS publication
+      not yet finalized at time of this config. Do not use as primary replacement
+      until FIPS document is published.
+
+  - name: "BIKE"
+    nist_round: 4
+    purpose: "key_establishment"
+    notes: "NIST Round 4 KEM. Not yet finalized."

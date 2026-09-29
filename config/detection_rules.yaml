@@ -1,0 +1,1304 @@
+# ECDAT Detection Rules — Source Code AST Analysis
+#
+# Each rule defines a cryptographic pattern detectable via AST analysis.
+# Rules are language-scoped. The discovery engine loads these at startup.
+#
+# Fields per rule:
+#   rule_id:         Unique identifier (R-NNN format)
+#   description:     Human-readable description of what is detected
+#   algorithm:       Canonical algorithm name (normalised, e.g. "RSA-2048")
+#   purpose:         CryptoPurpose enum value (must match enums.py)
+#   confidence:      Base confidence score [0.0–1.0] for a clean AST match
+#   severity:        Advisory severity hint for prioritisation
+#   languages:       List of language scopes this rule applies to
+#   match_type:      How the match is structured — see engine for semantics
+#                     call_chain:    module.function() / Class.method()
+#                     call_with_arg: function called with a specific argument value
+#                     import_alias:  import pattern implying algorithm use
+#   match:           Match specification (structure depends on match_type)
+#   key_size_bits:   Optional — extracted or inferred key size
+#   notes:           Optional — analyst guidance
+#
+# Principle: Rules detect cryptographic API *calls* — not comments, not
+# variable names containing algorithm strings, not import-only lines.
+# The engine must verify an actual call node exists in the AST.
+#
+# Reference: PRD §8 (tree-sitter avoids regex false-positives on comments).
+# Algorithm-to-PQC mapping is NOT here — that belongs in pqc_mappings.yaml (Day 4).
+
+version: "1.0"
+
+rules:
+
+  # ── RSA ─────────────────────────────────────────────────────────────────────
+
+  - rule_id: "R-001"
+    description: "RSA key generation via PyCryptodome RSA.generate()"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.97
+    severity: "high"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "RSA"
+      function: "generate"
+    key_size_extraction:
+      arg_index: 0          # First positional arg is key size in bits
+      arg_type: "integer"
+    notes: "PyCryptodome pattern. Key size extracted from first argument."
+
+  - rule_id: "R-012"
+    description: "RSA key generation via cryptography.hazmat rsa.generate_private_key()"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.97
+    severity: "high"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "rsa"
+      function: "generate_private_key"
+    key_size_extraction:
+      kwarg_name: "key_size"
+      arg_type: "integer"
+    notes: "cryptography.hazmat pattern. Key size extracted from key_size kwarg."
+
+  # ── MD5 ──────────────────────────────────────────────────────────────────────
+
+  - rule_id: "R-002"
+    description: "MD5 hash via PyCryptodome MD5.new()"
+    algorithm: "MD5"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "high"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "MD5"
+      function: "new"
+    notes: "MD5 is cryptographically broken. Should not be used for security."
+
+  - rule_id: "R-007"
+    description: "MD5 hash via hashlib.md5()"
+    algorithm: "MD5"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "high"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "hashlib"
+      function: "md5"
+    notes: "hashlib standard library pattern."
+
+  - rule_id: "R-021"
+    description: "MD5 hash via hashlib.new('md5')"
+    algorithm: "MD5"
+    purpose: "hashing"
+    confidence: 0.92
+    severity: "high"
+    languages: ["python"]
+    match_type: "call_with_arg"
+    match:
+      module: "hashlib"
+      function: "new"
+      arg_index: 0
+      arg_values: ["md5", "MD5"]
+    notes: "Dynamic hashlib.new() call with string argument."
+
+  # ── SHA-1 ─────────────────────────────────────────────────────────────────
+
+  - rule_id: "R-003"
+    description: "SHA-1 hash via PyCryptodome SHA1.new()"
+    algorithm: "SHA-1"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "medium"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "SHA1"
+      function: "new"
+    notes: "SHA-1 deprecated for security use (collision attacks demonstrated)."
+
+  - rule_id: "R-017"
+    description: "SHA-1 hash via hashlib.sha1()"
+    algorithm: "SHA-1"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "medium"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "hashlib"
+      function: "sha1"
+    notes: "hashlib standard library pattern."
+
+  - rule_id: "R-022"
+    description: "SHA-1 via hashlib.new('sha1')"
+    algorithm: "SHA-1"
+    purpose: "hashing"
+    confidence: 0.92
+    severity: "medium"
+    languages: ["python"]
+    match_type: "call_with_arg"
+    match:
+      module: "hashlib"
+      function: "new"
+      arg_index: 0
+      arg_values: ["sha1", "SHA1", "sha-1", "SHA-1"]
+
+  # ── SHA-256 / SHA-512 ─────────────────────────────────────────────────────
+
+  - rule_id: "R-008"
+    description: "SHA-256 hash via hashlib.sha256()"
+    algorithm: "SHA-256"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "info"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "hashlib"
+      function: "sha256"
+    notes: "SHA-256 is quantum-safe for hashing (Grover's requires 128-bit security)."
+
+  - rule_id: "R-014"
+    description: "SHA-512 hash via hashlib.sha512()"
+    algorithm: "SHA-512"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "info"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "hashlib"
+      function: "sha512"
+
+  # ── DES ───────────────────────────────────────────────────────────────────
+
+  - rule_id: "R-004"
+    description: "DES cipher via PyCryptodome DES.new()"
+    algorithm: "DES"
+    purpose: "encryption"
+    confidence: 0.98
+    severity: "critical"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "DES"
+      function: "new"
+    key_size_bits: 56
+    notes: "DES has 56-bit effective key — broken. Replace immediately."
+
+  # ── AES ───────────────────────────────────────────────────────────────────
+
+  - rule_id: "R-005"
+    description: "AES cipher via PyCryptodome AES.new()"
+    algorithm: "AES"
+    purpose: "encryption"
+    confidence: 0.95
+    severity: "low"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "AES"
+      function: "new"
+    notes: "AES is quantum-safe if key >= 256 bits (Grover halves security). Mode matters."
+
+  - rule_id: "R-010"
+    description: "AES-128-CBC (Fernet) via cryptography.fernet.Fernet.generate_key()"
+    algorithm: "AES-128-CBC"
+    purpose: "encryption"
+    confidence: 0.93
+    severity: "low"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "Fernet"
+      function: "generate_key"
+    key_size_bits: 128
+    notes: "Fernet wraps AES-128-CBC + HMAC-SHA256. Key size fixed at 128 bits."
+
+  # ── ECDSA / EC ────────────────────────────────────────────────────────────
+
+  - rule_id: "R-011"
+    description: "ECDSA key generation via cryptography.hazmat ec.generate_private_key()"
+    algorithm: "ECDSA"
+    purpose: "digital_signature"
+    confidence: 0.97
+    severity: "high"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "ec"
+      function: "generate_private_key"
+    notes: "Curve extracted from argument if possible (SECP256R1 = P-256)."
+
+  # ── HMAC ─────────────────────────────────────────────────────────────────
+
+  - rule_id: "R-013"
+    description: "HMAC via hmac.new()"
+    algorithm: "HMAC"
+    purpose: "mac"
+    confidence: 0.95
+    severity: "info"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "hmac"
+      function: "new"
+    notes: "HMAC-SHA256 is acceptable; HMAC-MD5 is not. Inner hash not extracted here."
+
+  - rule_id: "R-023"
+    description: "HMAC via hmac.digest()"
+    algorithm: "HMAC"
+    purpose: "mac"
+    confidence: 0.95
+    severity: "info"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "hmac"
+      function: "digest"
+
+  # ── SSL/TLS ───────────────────────────────────────────────────────────────
+
+  - rule_id: "R-009"
+    description: "Deprecated TLS version via ssl.SSLContext with TLSv1"
+    algorithm: "TLS-1.0"
+    purpose: "key_establishment"
+    confidence: 0.90
+    severity: "high"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "ssl"
+      function: "SSLContext"
+    notes: "TLS 1.0 deprecated. Specific version pinning detected via attribute access."
+
+  - rule_id: "R-016"
+    description: "Deprecated ssl.wrap_socket() with legacy cipher"
+    algorithm: "TLS-legacy"
+    purpose: "key_establishment"
+    confidence: 0.93
+    severity: "high"
+    languages: ["python"]
+    match_type: "call_chain"
+    match:
+      module: "ssl"
+      function: "wrap_socket"
+    notes: "ssl.wrap_socket() is deprecated since Python 3.7. Use SSLContext.wrap_socket()."
+
+  # ── Java rules ────────────────────────────────────────────────────────────
+
+  - rule_id: "R-101"
+    description: "MD5 hash via Java MessageDigest.getInstance('MD5')"
+    algorithm: "MD5"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "high"
+    languages: ["java"]
+    match_type: "call_with_arg"
+    match:
+      function: "getInstance"
+      arg_index: 0
+      arg_values: ["MD5", "md5"]
+    notes: "Java standard library JCE pattern."
+
+  - rule_id: "R-102"
+    description: "SHA-1 hash via Java MessageDigest.getInstance('SHA-1')"
+    algorithm: "SHA-1"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "medium"
+    languages: ["java"]
+    match_type: "call_with_arg"
+    match:
+      function: "getInstance"
+      arg_index: 0
+      arg_values: ["SHA-1", "SHA1", "sha-1", "sha1"]
+
+  - rule_id: "R-103"
+    description: "RSA key generation via Java KeyPairGenerator.getInstance('RSA')"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.96
+    severity: "high"
+    languages: ["java"]
+    match_type: "call_with_arg"
+    match:
+      function: "getInstance"
+      arg_index: 0
+      arg_values: ["RSA", "rsa"]
+
+  # ── JavaScript rules ──────────────────────────────────────────────────────
+
+  - rule_id: "R-201"
+    description: "MD5 hash via Node.js crypto.createHash('md5')"
+    algorithm: "MD5"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "high"
+    languages: ["javascript"]
+    match_type: "call_with_arg"
+    match:
+      function: "createHash"
+      arg_index: 0
+      arg_values: ["md5", "MD5"]
+
+  - rule_id: "R-202"
+    description: "SHA-1 hash via Node.js crypto.createHash('sha1')"
+    algorithm: "SHA-1"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "medium"
+    languages: ["javascript"]
+    match_type: "call_with_arg"
+    match:
+      function: "createHash"
+      arg_index: 0
+      arg_values: ["sha1", "sha-1", "SHA1", "SHA-1"]
+
+  - rule_id: "R-203"
+    description: "RSA key generation via Node.js crypto.generateKeyPair('rsa')"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.96
+    severity: "high"
+    languages: ["javascript"]
+    match_type: "call_with_arg"
+    match:
+      function: "generateKeyPair"
+      arg_index: 0
+      arg_values: ["rsa", "RSA"]
+
+  # ── C/C++ rules ───────────────────────────────────────────────────────────
+  # RSA family (OpenSSL RSA_* + EVP wrappers). Purpose is observed from the
+  # operation: keygen/encrypt/decrypt → key_establishment, sign/verify →
+  # digital_signature. Each rule names one operation — never a bare "RSA".
+
+  - rule_id: "R-301"
+    description: "RSA key generation via OpenSSL RSA_generate_key()"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.97
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "RSA_generate_key"
+    key_size_extraction:
+      arg_index: 0
+      arg_type: "integer"
+
+  - rule_id: "R-330"
+    description: "RSA key generation via RSA_generate_key_ex()"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.97
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "RSA_generate_key_ex"
+
+  - rule_id: "R-331"
+    description: "RSA object allocation via RSA_new()"
+    algorithm: "RSA"
+    purpose: "unknown"
+    confidence: 0.75
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "RSA_new"
+    notes: "Allocation only — operation unknown until use. Feeds LLM enrichment, never a guessed purpose."
+
+  - rule_id: "R-332"
+    description: "RSA public-key encryption via RSA_public_encrypt()"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.95
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "RSA_public_encrypt"
+
+  - rule_id: "R-333"
+    description: "RSA private-key decryption via RSA_private_decrypt()"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.95
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "RSA_private_decrypt"
+
+  - rule_id: "R-334"
+    description: "RSA signing via RSA_sign()"
+    algorithm: "RSA"
+    purpose: "digital_signature"
+    confidence: 0.95
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "RSA_sign"
+
+  - rule_id: "R-335"
+    description: "RSA verification via RSA_verify()"
+    algorithm: "RSA"
+    purpose: "digital_signature"
+    confidence: 0.95
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "RSA_verify"
+
+  - rule_id: "R-336"
+    description: "RSA multi-prime key generation"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.95
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "RSA_generate_multi_prime_key"
+
+  # ── ECC / ECDSA / ECDH (OpenSSL EC_* + EVP wrappers) ──────────────────────
+  # Keygen/compute → key_establishment; sign/verify → digital_signature.
+  # Curve-bearing constructors carry the curve; bare EC_KEY_new is unknown.
+
+  - rule_id: "R-340"
+    description: "EC key object allocation via EC_KEY_new()"
+    algorithm: "ECDSA"
+    purpose: "unknown"
+    confidence: 0.72
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EC_KEY_new"
+    notes: "Allocation only — curve and operation unknown. Feeds LLM enrichment."
+
+  - rule_id: "R-341"
+    description: "EC key allocation by named curve via EC_KEY_new_by_curve_name()"
+    algorithm: "ECDSA"
+    purpose: "unknown"
+    confidence: 0.85
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EC_KEY_new_by_curve_name"
+    notes: "Curve is in the NID argument — resolved by curve-argument extraction, not guessed."
+
+  - rule_id: "R-342"
+    description: "EC key generation via EC_KEY_generate_key()"
+    algorithm: "ECDSA"
+    purpose: "key_establishment"
+    confidence: 0.94
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EC_KEY_generate_key"
+
+  - rule_id: "R-343"
+    description: "ECDSA signing via ECDSA_sign()"
+    algorithm: "ECDSA"
+    purpose: "digital_signature"
+    confidence: 0.95
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "ECDSA_sign"
+
+  - rule_id: "R-344"
+    description: "ECDSA verification via ECDSA_verify()"
+    algorithm: "ECDSA"
+    purpose: "digital_signature"
+    confidence: 0.95
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "ECDSA_verify"
+
+  - rule_id: "R-345"
+    description: "ECDH shared-secret computation via ECDH_compute_key()"
+    algorithm: "ECDH"
+    purpose: "key_establishment"
+    confidence: 0.95
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "ECDH_compute_key"
+
+  # ── EVP_PKEY type + context configuration ─────────────────────────────────
+  # EVP_PKEY_RSA / EVP_PKEY_EC name the key TYPE (not the operation).
+  # Operation comes from surrounding EVP_PKEY_* calls; bare type ids are
+  # unknown-purpose so they enrich rather than mislead.
+
+  - rule_id: "R-350"
+    description: "EVP_PKEY_RSA key-type identifier"
+    algorithm: "RSA"
+    purpose: "unknown"
+    confidence: 0.80
+    severity: "info"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "EVP_PKEY_RSA"
+      symbol_kind: "any"
+    notes: "Key type only — operation resolved from context or LLM enrichment."
+
+  - rule_id: "R-351"
+    description: "EVP_PKEY_EC key-type identifier"
+    algorithm: "ECDSA"
+    purpose: "unknown"
+    confidence: 0.80
+    severity: "info"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "EVP_PKEY_EC"
+      symbol_kind: "any"
+
+  - rule_id: "R-352"
+    description: "EVP_PKEY_ED25519 key-type identifier (EdDSA)"
+    algorithm: "Ed25519"
+    purpose: "digital_signature"
+    confidence: 0.90
+    severity: "info"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "EVP_PKEY_ED25519"
+      symbol_kind: "any"
+    notes: "Ed25519 is signature-only — purpose is inherent in the algorithm."
+
+  - rule_id: "R-353"
+    description: "EVP_PKEY_ED448 key-type identifier (EdDSA)"
+    algorithm: "Ed448"
+    purpose: "digital_signature"
+    confidence: 0.90
+    severity: "info"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "EVP_PKEY_ED448"
+      symbol_kind: "any"
+
+  - rule_id: "R-354"
+    description: "RSA keygen bits configuration via EVP_PKEY_CTX_set_rsa_keygen_bits()"
+    algorithm: "RSA"
+    purpose: "key_establishment"
+    confidence: 0.88
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_PKEY_CTX_set_rsa_keygen_bits"
+
+  - rule_id: "R-355"
+    description: "RSA padding configuration via EVP_PKEY_CTX_set_rsa_padding()"
+    algorithm: "RSA"
+    purpose: "unknown"
+    confidence: 0.78
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_PKEY_CTX_set_rsa_padding"
+    notes: "Padding applies to both encrypt and sign paths — purpose unknown without more context."
+
+  - rule_id: "R-356"
+    description: "EC curve configuration via EVP_PKEY_CTX_set_ec_paramgen_curve_nid()"
+    algorithm: "ECDSA"
+    purpose: "unknown"
+    confidence: 0.82
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_PKEY_CTX_set_ec_paramgen_curve_nid"
+
+  # ── AES / symmetric crypto (OpenSSL EVP fetch + init) ─────────────────────
+  # EVP_aes_*_gcm/cbc fetchers name the exact algorithm+mode: deterministic.
+  # EVP_Encrypt/Decrypt/CipherInit_ex name the OPERATION with the algorithm
+  # resolved from sibling symbols (the fetched cipher) where present,
+  # else unknown-purpose so they enrich.
+
+  - rule_id: "R-360"
+    description: "AES-128-GCM cipher fetch via EVP_aes_128_gcm()"
+    algorithm: "AES-128-GCM"
+    purpose: "encryption"
+    confidence: 0.97
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_aes_128_gcm"
+
+  - rule_id: "R-361"
+    description: "AES-192-GCM cipher fetch via EVP_aes_192_gcm()"
+    algorithm: "AES-192-GCM"
+    purpose: "encryption"
+    confidence: 0.97
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_aes_192_gcm"
+
+  - rule_id: "R-362"
+    description: "AES-256-GCM cipher fetch via EVP_aes_256_gcm()"
+    algorithm: "AES-256-GCM"
+    purpose: "encryption"
+    confidence: 0.97
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_aes_256_gcm"
+
+  - rule_id: "R-363"
+    description: "AES-128-CBC cipher fetch via EVP_aes_128_cbc()"
+    algorithm: "AES-128-CBC"
+    purpose: "encryption"
+    confidence: 0.97
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_aes_128_cbc"
+
+  - rule_id: "R-364"
+    description: "AES-256-CBC cipher fetch via EVP_aes_256_cbc()"
+    algorithm: "AES-256-CBC"
+    purpose: "encryption"
+    confidence: 0.97
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_aes_256_cbc"
+
+  - rule_id: "R-365"
+    description: "Symmetric encryption init via EVP_EncryptInit_ex()"
+    algorithm: "AES"
+    purpose: "encryption"
+    confidence: 0.88
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_EncryptInit_ex"
+    notes: "Operation is encryption; exact cipher resolved from sibling fetch symbol where present."
+
+  - rule_id: "R-366"
+    description: "Symmetric decryption init via EVP_DecryptInit_ex()"
+    algorithm: "AES"
+    purpose: "encryption"
+    confidence: 0.88
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_DecryptInit_ex"
+
+  - rule_id: "R-367"
+    description: "Symmetric cipher init via EVP_CipherInit_ex()"
+    algorithm: "AES"
+    purpose: "unknown"
+    confidence: 0.80
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_CipherInit_ex"
+    notes: "Direction (encrypt/decrypt) decided by later EVP_CipherUpdate/Final args — enrich, don't guess."
+
+  # ── Hashing (EVP fetchers + low-level Init/Update/Final) ──────────────────
+
+  - rule_id: "R-370"
+    description: "SHA-1 fetch via EVP_sha1()"
+    algorithm: "SHA-1"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_sha1"
+
+  - rule_id: "R-371"
+    description: "SHA-224 fetch via EVP_sha224()"
+    algorithm: "SHA-224"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "low"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_sha224"
+
+  - rule_id: "R-372"
+    description: "SHA-256 fetch via EVP_sha256()"
+    algorithm: "SHA-256"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "low"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_sha256"
+
+  - rule_id: "R-373"
+    description: "SHA-384 fetch via EVP_sha384()"
+    algorithm: "SHA-384"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "low"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_sha384"
+
+  - rule_id: "R-374"
+    description: "SHA-512 fetch via EVP_sha512()"
+    algorithm: "SHA-512"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "low"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_sha512"
+
+  - rule_id: "R-375"
+    description: "MD5 fetch via EVP_md5()"
+    algorithm: "MD5"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_md5"
+
+  - rule_id: "R-376"
+    description: "SHA3-256 fetch via EVP_sha3_256()"
+    algorithm: "SHA3-256"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "low"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_sha3_256"
+
+  - rule_id: "R-377"
+    description: "SHA3-384 fetch via EVP_sha3_384()"
+    algorithm: "SHA3-384"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "low"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_sha3_384"
+
+  - rule_id: "R-378"
+    description: "SHA3-512 fetch via EVP_sha3_512()"
+    algorithm: "SHA3-512"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "low"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_sha3_512"
+
+  - rule_id: "R-379"
+    description: "SHA-1 Init via SHA1_Init()"
+    algorithm: "SHA-1"
+    purpose: "hashing"
+    confidence: 0.95
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "SHA1_Init"
+
+  - rule_id: "R-380"
+    description: "SHA-256 Init via SHA256_Init()"
+    algorithm: "SHA-256"
+    purpose: "hashing"
+    confidence: 0.95
+    severity: "low"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "SHA256_Init"
+
+  # ── HMAC / EVP_MAC ────────────────────────────────────────────────────────
+
+  - rule_id: "R-385"
+    description: "HMAC one-shot via HMAC()"
+    algorithm: "HMAC"
+    purpose: "mac"
+    confidence: 0.94
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "HMAC"
+
+  - rule_id: "R-386"
+    description: "HMAC init via HMAC_Init_ex()"
+    algorithm: "HMAC"
+    purpose: "mac"
+    confidence: 0.94
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "HMAC_Init_ex"
+
+  - rule_id: "R-387"
+    description: "EVP_MAC init via EVP_MAC_init()"
+    algorithm: "HMAC"
+    purpose: "mac"
+    confidence: 0.88
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_MAC_init"
+
+  - rule_id: "R-388"
+    description: "EVP_MAC update via EVP_MAC_update()"
+    algorithm: "HMAC"
+    purpose: "mac"
+    confidence: 0.88
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_MAC_update"
+
+  - rule_id: "R-389"
+    description: "EVP_MAC final via EVP_MAC_final()"
+    algorithm: "HMAC"
+    purpose: "mac"
+    confidence: 0.88
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "EVP_MAC_final"
+
+  # ── DSA / DH ──────────────────────────────────────────────────────────────
+  # DSA is signature-only: sign/verify → digital_signature, NEVER ML-KEM.
+  # DH is agreement: key_establishment.
+
+  - rule_id: "R-390"
+    description: "DSA object allocation via DSA_new()"
+    algorithm: "DSA"
+    purpose: "unknown"
+    confidence: 0.75
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "DSA_new"
+    notes: "Allocation only — feeds enrichment."
+
+  - rule_id: "R-391"
+    description: "DSA key generation via DSA_generate_key()"
+    algorithm: "DSA"
+    purpose: "digital_signature"
+    confidence: 0.90
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "DSA_generate_key"
+    notes: "DSA keys sign — purpose is signature, never key establishment."
+
+  - rule_id: "R-392"
+    description: "DSA signing via DSA_sign()"
+    algorithm: "DSA"
+    purpose: "digital_signature"
+    confidence: 0.95
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "DSA_sign"
+
+  - rule_id: "R-393"
+    description: "DSA verification via DSA_verify()"
+    algorithm: "DSA"
+    purpose: "digital_signature"
+    confidence: 0.95
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "DSA_verify"
+
+  - rule_id: "R-394"
+    description: "DH object allocation via DH_new()"
+    algorithm: "DH"
+    purpose: "unknown"
+    confidence: 0.75
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "DH_new"
+
+  - rule_id: "R-395"
+    description: "DH key generation via DH_generate_key()"
+    algorithm: "DH"
+    purpose: "key_establishment"
+    confidence: 0.93
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "DH_generate_key"
+
+  - rule_id: "R-396"
+    description: "DH shared-secret computation via DH_compute_key()"
+    algorithm: "DH"
+    purpose: "key_establishment"
+    confidence: 0.95
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "DH_compute_key"
+
+  # ── NID / OBJ identifiers (constants naming algorithms) ───────────────────
+  # NIDs name algorithms but not operations — unknown purpose by design.
+
+  - rule_id: "R-397"
+    description: "NID for RSA encryption (NID_rsaEncryption)"
+    algorithm: "RSA"
+    purpose: "unknown"
+    confidence: 0.82
+    severity: "info"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "NID_rsaEncryption"
+      symbol_kind: "constant"
+
+  - rule_id: "R-398"
+    description: "NID for EC public key (NID_X9_62_id_ecPublicKey)"
+    algorithm: "ECDSA"
+    purpose: "unknown"
+    confidence: 0.82
+    severity: "info"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "NID_X9_62_id_ecPublicKey"
+      symbol_kind: "constant"
+
+  - rule_id: "R-399"
+    description: "NID for Ed25519 (NID_ED25519)"
+    algorithm: "Ed25519"
+    purpose: "digital_signature"
+    confidence: 0.88
+    severity: "info"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "NID_ED25519"
+      symbol_kind: "constant"
+    notes: "Ed25519 is signature-only."
+
+  - rule_id: "R-400"
+    description: "NID for X25519 (NID_X25519)"
+    algorithm: "X25519"
+    purpose: "key_establishment"
+    confidence: 0.88
+    severity: "info"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "NID_X25519"
+      symbol_kind: "constant"
+    notes: "X25519 is key-agreement-only."
+
+  - rule_id: "R-401"
+    description: "NID for SHA-256 (NID_sha256)"
+    algorithm: "SHA-256"
+    purpose: "hashing"
+    confidence: 0.88
+    severity: "low"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "NID_sha256"
+      symbol_kind: "constant"
+
+  - rule_id: "R-402"
+    description: "NID for AES-256-GCM (NID_aes_256_gcm)"
+    algorithm: "AES-256-GCM"
+    purpose: "encryption"
+    confidence: 0.90
+    severity: "medium"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "NID_aes_256_gcm"
+      symbol_kind: "constant"
+
+  # ── Named-curve NIDs (curve evidence, resolved by extraction) ─────────────
+  # These name curves, not operations — unknown purpose, curve attached.
+
+  - rule_id: "R-403"
+    description: "Named curve P-256 (NID_X9_62_prime256v1)"
+    algorithm: "ECDSA"
+    purpose: "unknown"
+    confidence: 0.84
+    severity: "info"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "NID_X9_62_prime256v1"
+      symbol_kind: "constant"
+
+  - rule_id: "R-404"
+    description: "Named curve P-384 (NID_secp384r1)"
+    algorithm: "ECDSA"
+    purpose: "unknown"
+    confidence: 0.84
+    severity: "info"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "NID_secp384r1"
+      symbol_kind: "constant"
+
+  - rule_id: "R-405"
+    description: "Named curve P-521 (NID_secp521r1)"
+    algorithm: "ECDSA"
+    purpose: "unknown"
+    confidence: 0.84
+    severity: "info"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "NID_secp521r1"
+      symbol_kind: "constant"
+
+  - rule_id: "R-406"
+    description: "Named curve X448 (NID_X448)"
+    algorithm: "X448"
+    purpose: "key_establishment"
+    confidence: 0.88
+    severity: "info"
+    languages: ["c"]
+    match_type: "c_symbol"
+    match:
+      function: "NID_X448"
+      symbol_kind: "constant"
+
+  - rule_id: "R-302"
+    description: "MD5 digest via OpenSSL MD5() function"
+    algorithm: "MD5"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "high"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "MD5"
+
+  - rule_id: "R-303"
+    description: "SHA-1 digest via OpenSSL SHA1() function"
+    algorithm: "SHA-1"
+    purpose: "hashing"
+    confidence: 0.97
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "SHA1"
+
+  - rule_id: "R-304"
+    description: "EVP digest context — algorithm determined by EVP_get_digestbyname arg"
+    algorithm: "EVP-digest"
+    purpose: "hashing"
+    confidence: 0.85
+    severity: "medium"
+    languages: ["c"]
+    match_type: "call_with_arg"
+    match:
+      function: "EVP_get_digestbyname"
+      arg_index: 0
+      arg_values: ["md5", "MD5", "sha1", "SHA1", "sha-1", "SHA-1"]
+    notes: "Ambiguous — actual algorithm depends on runtime arg. High-confidence only when string literal."
+
+  # ── Post-quantum / liboqs (OQS_*) ─────────────────────────────────────────
+  # liboqs (open-quantum-safe/liboqs) exposes two API styles, both matched:
+  #   heap/generic:  OQS_KEM_new / OQS_SIG_new + OQS_KEM_keypair/encaps/decaps
+  #                  / OQS_SIG_keypair/sign/verify (algorithm chosen at runtime)
+  #   stack/direct:  OQS_KEM_<alg>_keypair/encaps/decaps,
+  #                  OQS_SIG_<alg>_keypair/sign/verify (algorithm in the name)
+  # Purpose follows the primitive: KEM → key_establishment, SIG → signature.
+  # These record PQC-native usage (already quantum-safe). The PQC mapping
+  # config marks them no_action so they never produce migration noise.
+
+  - rule_id: "R-310"
+    description: "liboqs generic KEM constructor OQS_KEM_new()"
+    algorithm: "ML-KEM"
+    purpose: "key_establishment"
+    confidence: 0.95
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "OQS_KEM_new"
+    notes: "Generic liboqs KEM object — algorithm chosen at runtime via OQS_KEM_alg_* string."
+
+  - rule_id: "R-311"
+    description: "liboqs generic KEM operations (OQS_KEM_keypair/encaps/decaps)"
+    algorithm: "ML-KEM"
+    purpose: "key_establishment"
+    confidence: 0.95
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "OQS_KEM_keypair"
+
+  - rule_id: "R-312"
+    description: "liboqs generic KEM encapsulation OQS_KEM_encaps()"
+    algorithm: "ML-KEM"
+    purpose: "key_establishment"
+    confidence: 0.95
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "OQS_KEM_encaps"
+
+  - rule_id: "R-313"
+    description: "liboqs generic KEM decapsulation OQS_KEM_decaps()"
+    algorithm: "ML-KEM"
+    purpose: "key_establishment"
+    confidence: 0.95
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "OQS_KEM_decaps"
+
+  - rule_id: "R-314"
+    description: "liboqs generic signature constructor OQS_SIG_new()"
+    algorithm: "ML-DSA"
+    purpose: "digital_signature"
+    confidence: 0.95
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "OQS_SIG_new"
+    notes: "Generic liboqs signature object — algorithm chosen at runtime via OQS_SIG_alg_* string."
+
+  - rule_id: "R-315"
+    description: "liboqs generic signature keypair OQS_SIG_keypair()"
+    algorithm: "ML-DSA"
+    purpose: "digital_signature"
+    confidence: 0.95
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "OQS_SIG_keypair"
+
+  - rule_id: "R-316"
+    description: "liboqs generic signature sign OQS_SIG_sign()"
+    algorithm: "ML-DSA"
+    purpose: "digital_signature"
+    confidence: 0.95
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "OQS_SIG_sign"
+
+  - rule_id: "R-317"
+    description: "liboqs generic signature verify OQS_SIG_verify()"
+    algorithm: "ML-DSA"
+    purpose: "digital_signature"
+    confidence: 0.95
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "OQS_SIG_verify"
+
+  - rule_id: "R-318"
+    description: "liboqs stack/direct ML-KEM operations (OQS_KEM_ml_kem_* keypair/encaps/decaps)"
+    algorithm: "ML-KEM"
+    purpose: "key_establishment"
+    confidence: 0.96
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "OQS_KEM_ml_kem_*"
+    notes: "Prefix rule — matches every ML-KEM variant (512/768/1024) and operation (keypair/encaps/decaps)."
+
+  - rule_id: "R-319"
+    description: "liboqs stack/direct ML-DSA operations (OQS_SIG_ml_dsa_* keypair/sign/verify)"
+    algorithm: "ML-DSA"
+    purpose: "digital_signature"
+    confidence: 0.96
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "OQS_SIG_ml_dsa_*"
+    notes: "Prefix rule — matches every ML-DSA variant (44/65/87) and operation (keypair/sign/verify)."
+
+  - rule_id: "R-320"
+    description: "liboqs stack/direct SLH-DSA operations (OQS_SIG_slh_dsa_* keypair/sign/verify)"
+    algorithm: "SLH-DSA"
+    purpose: "digital_signature"
+    confidence: 0.96
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "OQS_SIG_slh_dsa_*"
+    notes: "Prefix rule — stateless hash-based signatures, NIST-standardized (FIPS 205)."
+
+  - rule_id: "R-321"
+    description: "liboqs Falcon operations (OQS_SIG_falcon_* keypair/sign/verify)"
+    algorithm: "Falcon"
+    purpose: "digital_signature"
+    confidence: 0.93
+    severity: "info"
+    languages: ["c"]
+    match_type: "call_chain"
+    match:
+      function: "OQS_SIG_falcon_*"
+    notes: "Prefix rule — Falcon (FN-DSA track, not yet FIPS-finalized). Recorded, never recommended as primary."

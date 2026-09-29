@@ -1,0 +1,98 @@
+# ── Secrets & credentials ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+secrets.yaml
+secrets.yml
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.virtualenv/
+
+# ── Testing & coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.xml
+nosetests.xml
+
+# ── Type checking ─────────────────────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# ── Local databases ───────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── ECDAT generated artifacts ────────────────────────────────────────────────
+# Output artifacts are sensitive — they describe an org's cryptographic weaknesses
+# (PRD §6: "Data sensitivity of ECDAT's own outputs")
+outputs/
+reports/
+*.cbom.json
+*.cbom.xml
+
+# ── Redis / cache ─────────────────────────────────────────────────────────────
+dump.rdb
+*.rdb
+
+# ── IDEs & editors ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Node / frontend ───────────────────────────────────────────────────────────
+node_modules/
+frontend/build/
+frontend/dist/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# ── Alembic ───────────────────────────────────────────────────────────────────
+# Keep versions/ tracked; ignore only local override configs
+backend/alembic.ini.local
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+desktop.ini
+
+# Local development caches and job worktrees
+.npm-cache/
+.pytest-temp-baseline/
+backend/.ecdat_jobs/

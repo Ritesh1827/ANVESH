@@ -1,0 +1,298 @@
+# ECDAT Migration Impact Weights — Stage 11: Migration Impact Analysis
+#
+# PRD §5 stage 11: "Score each recommendation against real migration factors
+# (bandwidth, storage, latency, protocol, application software, hardware/HSM,
+# vendor dependency, cost)"
+#
+# PRD §8: "Keeps algorithm-to-PQC mappings and ownership mappings as editable
+# data, not hardcoded logic."
+#
+# This file externalises all migration impact scoring weights and factor
+# descriptions. The MigrationImpactEngine reads this file — no weights are
+# hardcoded in Python.
+#
+# ── Design ────────────────────────────────────────────────────────────────────
+#
+# For each of the 8 PRD-mandated migration factors, this file defines:
+#   weight:      Relative importance (0.0–1.0). Must sum to ≤ 1.0.
+#                Used to compute the composite impact score.
+#   description: Human-readable explanation shown in roadmap narratives.
+#
+# Per-algorithm impact scores (0.0 = minimal, 1.0 = maximum disruption):
+#   Scores are defined by algorithm_prefix pattern below.
+#   They express how disruptive migration FROM this algorithm is for each factor.
+#   A high score = more work / more disruption for that factor.
+#   These are reference scores based on published NIST NCCoE PQC Migration
+#   project data and industry surveys — not invented values.
+#
+# ── Build Plan note ───────────────────────────────────────────────────────────
+# "Scoring weights can stay fixed/simple; the roadmap narrative should be
+#  real since it's cheap and a differentiator."
+# — ECDAT Build Execution Plan, Day 8.
+
+version: "1.0"
+
+# ── Factor definitions and weights ───────────────────────────────────────────
+# Weights sum to 1.0. Adjust for organisation-specific priorities.
+
+factors:
+  bandwidth:
+    weight: 0.10
+    description: >
+      Network bandwidth impact. PQC algorithms (ML-KEM, ML-DSA, SLH-DSA) have
+      larger key and signature sizes than classical algorithms. ML-KEM-768
+      ciphertext is ~1088 bytes vs. RSA-2048's ~256 bytes. SLH-DSA signatures
+      are substantially larger than ECDSA.
+
+  storage:
+    weight: 0.10
+    description: >
+      Storage impact for keys, certificates, and signatures. Larger keys and
+      signatures require more storage in HSMs, certificate stores, and databases.
+      ML-DSA-65 public key is ~1952 bytes vs. ECDSA P-256's 64 bytes.
+
+  latency:
+    weight: 0.10
+    description: >
+      Computational latency impact. PQC algorithms have different performance
+      profiles. ML-KEM is fast (comparable to ECDH). ML-DSA signing is slower.
+      SLH-DSA signing is significantly slower. Impact depends on call volume.
+
+  protocol:
+    weight: 0.20
+    description: >
+      Protocol-level changes required. TLS, SSH, S/MIME, CMS, and other protocols
+      require updates to negotiate PQC algorithms. TLS 1.3 supports hybrid
+      key exchange natively; older protocols may require version upgrades.
+
+  application_software:
+    weight: 0.20
+    description: >
+      Application software changes required. Library upgrades, API changes,
+      configuration file updates, and code changes to use new algorithm
+      identifiers. Vendor library support for PQC is still maturing.
+
+  hardware_hsm:
+    weight: 0.15
+    description: >
+      Hardware and HSM impact. Some algorithms require hardware support or
+      HSM firmware updates. Hardware key storage for PQC keys may need
+      larger memory allocations. Legacy hardware may not support PQC.
+
+  vendor_dependency:
+    weight: 0.10
+    description: >
+      Vendor ecosystem dependency. Migration requires vendor support (CA
+      certificates, cloud KMS, HSM vendors, TLS termination appliances).
+      Hybrid mode reduces risk during migration while vendors catch up.
+
+  cost:
+    weight: 0.05
+    description: >
+      Estimated migration cost factor. Relative cost of the migration
+      considering engineering effort, testing, certification, and potential
+      hardware replacement. Does not represent actual currency — use as a
+      relative priority signal only.
+
+# ── Per-algorithm impact scores ───────────────────────────────────────────────
+# Each algorithm_prefix entry defines scores (0.0–1.0) for each factor.
+# First matching prefix wins (most-specific to least-specific ordering).
+# All algorithms default to the "*" wildcard entry if no prefix matches.
+
+algorithm_impacts:
+
+  # ── RSA: large ciphertext and signature sizes → high bandwidth/storage ─────
+  - algorithm_prefix: "RSA"
+    purpose: "key_establishment"
+    scores:
+      bandwidth: 0.7      # ML-KEM ciphertext larger than RSA PKCS
+      storage: 0.5        # ML-KEM keys comparable to RSA-2048
+      latency: 0.3        # ML-KEM is fast
+      protocol: 0.8       # TLS renegotiation, PKCS updates required
+      application_software: 0.7   # library + config changes
+      hardware_hsm: 0.6   # HSM support for ML-KEM still maturing
+      vendor_dependency: 0.7
+      cost: 0.7
+
+  - algorithm_prefix: "RSA"
+    purpose: "digital_signature"
+    scores:
+      bandwidth: 0.8      # ML-DSA signatures are larger
+      storage: 0.7
+      latency: 0.5        # ML-DSA signing is slower
+      protocol: 0.8
+      application_software: 0.7
+      hardware_hsm: 0.6
+      vendor_dependency: 0.7
+      cost: 0.7
+
+  # ── ECDSA: similar to RSA signature migration ─────────────────────────────
+  - algorithm_prefix: "ECDSA"
+    purpose: "digital_signature"
+    scores:
+      bandwidth: 0.8
+      storage: 0.8
+      latency: 0.5
+      protocol: 0.8
+      application_software: 0.7
+      hardware_hsm: 0.6
+      vendor_dependency: 0.6
+      cost: 0.6
+
+  # ── MD5 / SHA-1: drop-in hash replacement, low disruption ────────────────
+  - algorithm_prefix: "MD5"
+    purpose: "any"
+    scores:
+      bandwidth: 0.1      # SHA-256 output same size as MD5
+      storage: 0.1
+      latency: 0.1        # SHA-256 is fast
+      protocol: 0.3       # some protocols hardcode hash choice
+      application_software: 0.4   # code change but well-understood
+      hardware_hsm: 0.1
+      vendor_dependency: 0.2
+      cost: 0.2
+
+  - algorithm_prefix: "SHA-1"
+    purpose: "any"
+    scores:
+      bandwidth: 0.2      # SHA-256 slightly larger output
+      storage: 0.2
+      latency: 0.1
+      protocol: 0.5       # TLS, Git, certificate fingerprinting
+      application_software: 0.4
+      hardware_hsm: 0.1
+      vendor_dependency: 0.3
+      cost: 0.3
+
+  # ── DES / 3DES: symmetric key upgrade, moderate disruption ───────────────
+  - algorithm_prefix: "DES"
+    purpose: "any"
+    scores:
+      bandwidth: 0.2      # AES block size same
+      storage: 0.2
+      latency: 0.1        # AES-256 comparable speed
+      protocol: 0.5       # TLS cipher suite update
+      application_software: 0.5
+      hardware_hsm: 0.4   # HSM key size change
+      vendor_dependency: 0.4
+      cost: 0.4
+
+  - algorithm_prefix: "3DES"
+    purpose: "any"
+    scores:
+      bandwidth: 0.2
+      storage: 0.2
+      latency: 0.1
+      protocol: 0.5
+      application_software: 0.5
+      hardware_hsm: 0.4
+      vendor_dependency: 0.4
+      cost: 0.4
+
+  # ── AES (short key): key size upgrade only, minimal disruption ───────────
+  - algorithm_prefix: "AES"
+    purpose: "any"
+    scores:
+      bandwidth: 0.1
+      storage: 0.1
+      latency: 0.1
+      protocol: 0.2
+      application_software: 0.3
+      hardware_hsm: 0.3
+      vendor_dependency: 0.2
+      cost: 0.2
+
+  # ── TLS protocol-level: high disruption — affects infrastructure layer ───
+  - algorithm_prefix: "TLS"
+    purpose: "any"
+    scores:
+      bandwidth: 0.6
+      storage: 0.3
+      latency: 0.5
+      protocol: 0.9       # direct TLS version migration required
+      application_software: 0.6
+      hardware_hsm: 0.4
+      vendor_dependency: 0.8   # load balancers, CDNs, HSMs all affected
+      cost: 0.8
+
+  # ── HMAC / safe hashes: no action needed, zero impact ───────────────────
+  - algorithm_prefix: "HMAC"
+    purpose: "any"
+    scores:
+      bandwidth: 0.0
+      storage: 0.0
+      latency: 0.0
+      protocol: 0.0
+      application_software: 0.0
+      hardware_hsm: 0.0
+      vendor_dependency: 0.0
+      cost: 0.0
+
+  - algorithm_prefix: "SHA-256"
+    purpose: "any"
+    scores:
+      bandwidth: 0.0
+      storage: 0.0
+      latency: 0.0
+      protocol: 0.0
+      application_software: 0.0
+      hardware_hsm: 0.0
+      vendor_dependency: 0.0
+      cost: 0.0
+
+  - algorithm_prefix: "SHA-512"
+    purpose: "any"
+    scores:
+      bandwidth: 0.0
+      storage: 0.0
+      latency: 0.0
+      protocol: 0.0
+      application_software: 0.0
+      hardware_hsm: 0.0
+      vendor_dependency: 0.0
+      cost: 0.0
+
+  # ── Default wildcard ─────────────────────────────────────────────────────
+  - algorithm_prefix: "*"
+    purpose: "any"
+    scores:
+      bandwidth: 0.4
+      storage: 0.3
+      latency: 0.3
+      protocol: 0.5
+      application_software: 0.5
+      hardware_hsm: 0.3
+      vendor_dependency: 0.4
+      cost: 0.4
+
+# ── Validation steps by migration path type ───────────────────────────────────
+# Ordered steps shown in the roadmap narrative for each migration path type.
+# These are not hardcoded in Python — the engine reads them here.
+
+validation_steps:
+  hybrid:
+    - "Deploy hybrid mode (classical + PQC) alongside existing deployment"
+    - "Run interoperability test suite against all known clients"
+    - "Verify TLS/protocol handshake succeeds with hybrid key exchange"
+    - "Monitor error rates for negotiation failures (14-day observation)"
+    - "Confirm HSM/key-store supports new key material size"
+    - "Retire classical-only configuration after hybrid validation period"
+    - "Update certificate chain and CAB Forum compliance documentation"
+
+  pure_pqc:
+    - "Verify all clients and peers support the target PQC algorithm"
+    - "Run PQC-only interoperability test suite"
+    - "Confirm no classical fallback path exists in production"
+    - "Validate HSM firmware supports PQC key operations"
+    - "Document quantum-safe configuration for compliance records"
+
+  classical_upgrade:
+    - "Replace deprecated algorithm with approved replacement in code"
+    - "Update test suite to validate new algorithm output"
+    - "Verify downstream systems accept new algorithm output format"
+    - "Run regression tests to confirm functional equivalence"
+    - "Update security documentation and compliance attestation"
+
+  no_action:
+    - "Confirm current algorithm meets security requirements for intended lifetime"
+    - "Schedule re-evaluation if data sensitivity or retention period changes"

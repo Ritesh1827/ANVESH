@@ -1,0 +1,41 @@
+# Taste
+- Requires deterministic detection as primary source of truth; LLM is secondary/advisory only with schema-validated output, never coerced, never allowed to issue a final security verdict. Confidence: 0.95
+- Requires system to stay strictly read-only and advisory — never patches code, rotates keys, replaces certificates, or modifies scanned targets. Confidence: 0.95
+- Requires purpose-aware PQC mapping (key establishment → ML-KEM, signatures → ML-DSA/SLH-DSA) and standardized vs ongoing-standardization separation to never regress. Confidence: 0.9
+- Prefers config-driven rules (YAML/JSON) for classification, risk, and recommendations over hardcoded logic so they can evolve with guidance. Confidence: 0.9
+- Requires regression discipline: capture baseline behavior before changing anything and run the full existing test suite before and after every change with results reported. Confidence: 0.9
+- Requires explicitly reporting any assumption not directly specified by the spec rather than silently deciding. Confidence: 0.9
+- Prefers inspect-then-build workflow: full codebase inspection with gap list of what is demo-only vs missing vs genuinely general-purpose before writing code, and verifying state directly instead of assuming numbers. Confidence: 0.85
+- Prefers validation against real arbitrary user-provided input and external repos, not just curated fixtures, with honest reporting of what worked, what didn't, and remaining gaps. Confidence: 0.85
+- Expects end-of-pass report covering initial gap list, what was built and in what order, what remains demo-only/incomplete and why, test results before/after, and clear-eyed real-tool vs guided-demo assessment. Confidence: 0.85
+- Treats docs/ reference documents as read-only (never create/modify/rename/delete) with PRD as scope authority when plans conflict. Confidence: 0.9
+- Requires production-grade password hashing (bcrypt or argon2 via passlib) for real auth; explicitly rejects raw hashlib+salt as too weak for a crypto-security tool to ship with. Confidence: 0.9
+- Requires external real-repo validation to use crypto-dense public repos (e.g. OpenSSL/BouncyCastle-based) so results prove detection quality, not just crash-freedom on crypto-free code. Confidence: 0.9
+- Prefers gated phased delivery: stop and report after each task (what changed, test suite before/after, confirmation the foundation model is solid) before starting the next task. Confidence: 0.85
+- Prefers retaining curated demo/sample data as an explicit onboarding option when generalizing from fixed fixtures to arbitrary real user input, never as the only path. Confidence: 0.85
+- Prefers closing cheap reliability gaps immediately rather than leaving them as documented open caveats. Confidence: 0.8
+- Prefers capturing a baseline DB migration while the schema is stable and verifying existing databases still work against it across supported backends. Confidence: 0.85
+- Prefers secrets and connection strings (DATABASE_URL, API keys) to be read from environment/.env as the app already does; explicitly does not want to be asked to paste secret values. Confidence: 0.95
+- Prefers swappable LLM provider architecture selected via env var (e.g. LLM_PROVIDER) with a registry so new providers can be added without touching callers; requires keeping existing enrich_snippet() interface and downstream schema-validation/caching untouched. Confidence: 0.9
+- Prefers fast/cheap models for short classification tasks and requires checking current provider docs for available model names rather than assuming one. Confidence: 0.85
+- Requires LLM safety settings to be explicitly reviewed for the security/crypto input domain (weak crypto, exploits, security terminology) so realistic snippets are not silently blocked, with confirmation on real inputs. Confidence: 0.9
+- Requires bounded retry/backoff for LLM rate-limit/transient errors with graceful per-snippet degradation, never failing the whole scan on one throttled item; auth failures should fail fast without retry. Confidence: 0.85
+- Requires TLS/SSL (sslmode=require / SSL context) for Supabase/Postgres pooler connections rather than attempting unencrypted connections. Confidence: 0.85
+- Requires live-database round-trip verification of core persistence flows (reaper, ownership rules, scan history, CBOM) after DB/migration changes, not just migration success. Confidence: 0.8
+- Requires general scalability fixes that hold for 30 to 30,000 assets / any real visitor repo on a public URL, explicitly rejecting demo-specific optimizations tuned to current test cases. Confidence: 0.9
+- Prefers paginated (limit/offset) queries with server-side filtering plus lightweight summary endpoints that return only what the view renders, never hydrating full blobs to compute counts/top-N. Confidence: 0.9
+- Requires proper frontend loading states for public-facing views; prefers visible loading indicator with fast paged fetches over a page that looks frozen for seconds. Confidence: 0.85
+- Requires performance validation with before/after load-time reporting plus reasoned extrapolation to an order-of-magnitude larger scale, flagging residual degradation needing follow-up even without a large fixture. Confidence: 0.85
+- Requires full-data download/export endpoints (CBOM, reports) to always serve the complete dataset unpaginated and unsummarized, with no truncation, even when list views are paginated. Confidence: 0.9
+- Requires search/filter on paginated views to operate server-side across the full dataset, never just the currently loaded page — a filter that misses assets outside the current page is a regression, not an optimization. Confidence: 0.9
+- Requires fail-soft scan robustness: one bad or deeply-nested input file must degrade (skip/log/continue), never kill the whole scan. Confidence: 0.9
+- Prefers iterative explicit-stack traversal over recursion when walking untrusted nested inputs (e.g. ASTs) to remove call-stack depth ceilings. Confidence: 0.8
+- Requires partial persistence on scan failure: persist assets found before the failure point with explicit partial status/reporting instead of discarding everything. Confidence: 0.9
+- Requires new detection coverage as config/rule additions validated against the actual upstream API surface/examples, not new scanner logic or guessed names. Confidence: 0.85
+- Prefers logic-first debugging explanations: explain underlying cause/logic before making any code changes when failures occur. Confidence: 0.8
+- Prefers surgical backend credibility work: no frontend redesign, no cosmetic dashboard features, and no unnecessary rewrites of working pipeline stages; preserve existing language behavior and never weaken tests or disable components to make a scan complete. Confidence: 0.9
+- Requires generic AST/API-symbol detection: recognize real call/symbol evidence via configuration-driven rules, never filename-only, comment-only, string-substring, or hardcoded per-repo file/path/count rules. Confidence: 0.9
+- Requires evidence-backed inference only: when algorithm/purpose cannot be confidently resolved, emit an ambiguous finding with observed API, location, method, and confidence routed to enrichment; purpose and CBOM relationships only when directly observed or explicitly evidenced, otherwise unknown — never silently present inference as fact or fabricate relationships. Confidence: 0.9
+- Requires observation-preserving normalization: distinguish raw observations from unique normalized assets with variant counts and locations; deduplicate/correlate at the inventory layer without deleting evidence, never remove observations to make counts look cleaner. Confidence: 0.85
+- Prefers scoped validation proportionate to change size: for small fixes use focused tests plus a small real-repo smoke test only, explicitly avoiding full-suite or full-corpus reruns; reserves full-suite plus full-corpus validation for later milestones. Confidence: 0.9
+- Requires success to be judged by detection quality and explainability (real source locations, API/AST-identified algorithms, evidence-backed purpose and relationships), not merely by scan completion. Confidence: 0.9

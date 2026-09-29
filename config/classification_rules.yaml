@@ -1,0 +1,376 @@
+# ECDAT Classification Rules — Stage 6: Classification & Business Context
+#
+# PRD §5 stage 6: "Tag each asset as application or infrastructure
+# cryptography (TEC 910018:2025 taxonomy), with sensitivity, business
+# criticality, and lifecycle stage."
+#
+# PRD §8: "Keeps algorithm-to-PQC mappings and ownership mappings as
+# editable data, not hardcoded logic — important as NIST standards evolve."
+# The same principle applies here: all classification logic is data, not
+# inline Python conditionals.
+#
+# ── Design principles ──────────────────────────────────────────────────────
+#
+# 1. Rules are evaluated in priority order. First match wins.
+#    Highest priority number = evaluated first.
+#
+# 2. Three independent rule sets:
+#    a) classification_rules  → AssetClassification (application / infrastructure)
+#    b) sensitivity_rules     → SensitivityLevel
+#    c) criticality_rules     → BusinessCriticality
+#    Each set is evaluated separately. An asset can match different rules
+#    in each set — the sets are orthogonal.
+#
+# 3. Lifecycle stage is handled separately:
+#    - Certificate surface: derived from expiry date by the engine.
+#    - All other surfaces: ACTIVE (documented default, not a silent assumption).
+#
+# 4. Match criteria available per rule:
+#    - surface:        source_surface value ("source_code", "certificate", "binary", etc.)
+#    - purpose:        CryptoPurpose enum value or list of values
+#    - algorithm_prefix: case-insensitive prefix of the algorithm name
+#    - file_path_contains: substring(s) to search in the file_path
+#    - key_size_lt:    key_size_bits < N (matches weaker keys)
+#    - key_size_gte:   key_size_bits >= N
+#
+#    All criteria within a rule are AND-ed together.
+#    The first rule (by priority order) that matches ALL its criteria wins.
+#
+# 5. Fallback: if no rule matches, the engine uses the explicit
+#    FALLBACK_* values defined at the bottom of each section.
+#    Fallbacks are never None — every asset must receive a value.
+#
+# ── PRD §9 sample validation ───────────────────────────────────────────────
+# The PRD §9 sample shows:
+#   classification: "application"     ← RSA-2048 in auth_service.py:143
+#   sensitivity:    "high"            ← key_establishment, high-stakes data
+#   business_criticality: "critical"  ← critical service, key establishment
+#
+# The rules below reproduce these values for that specific asset pattern.
+
+version: "1.0"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CLASSIFICATION RULES  (AssetClassification: application | infrastructure)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# TEC 910018:2025 taxonomy:
+#   infrastructure — assets that protect the communication layer itself:
+#     TLS/SSL sessions, SSH connections, certificates and PKI, VPN tunnels,
+#     network-layer protocols. Their compromise affects ALL users of a system.
+#   application — assets that protect data within an application:
+#     password hashing, payload encryption, document signing, API MACs.
+#     Their compromise affects the data that flows through the application.
+#
+# Key improvement over the old filename-keyword heuristic:
+#   Purpose takes precedence over filename. A TLS call inside auth_service.py
+#   is still infrastructure cryptography regardless of the filename.
+#   Surface takes precedence over everything else (certificates ARE infrastructure).
+
+classification_rules:
+
+  # ── Certificates are always infrastructure ────────────────────────────────
+  - priority: 100
+    description: "Certificate-surface assets are always infrastructure"
+    match:
+      surface: "certificate"
+    result: "infrastructure"
+
+  # ── Binary and container surfaces default to application ──────────────────
+  # (until we have richer binary metadata to determine TLS vs app crypto)
+  - priority: 95
+    description: "Binary/container assets default to application pending deeper analysis"
+    match:
+      surface:
+        - "binary"
+        - "container"
+    result: "application"
+
+  # ── Infrastructure: purpose = key_establishment with TLS/SSH evidence ─────
+  # A key_establishment call inside a file whose path contains TLS/SSL/SSH
+  # keywords is clearly infrastructure — it establishes session keys.
+  - priority: 90
+    description: "Key establishment in TLS/SSL/SSH files is infrastructure"
+    match:
+      purpose: "key_establishment"
+      file_path_contains:
+        - "tls"
+        - "ssl"
+        - "ssh"
+        - "pki"
+        - "cert"
+        - "network"
+        - "socket"
+        - "proxy"
+        - "gateway"
+        - "infra"
+        - "transport"
+        - "handshake"
+    result: "infrastructure"
+
+  # ── Infrastructure: algorithm is a TLS version / legacy protocol ──────────
+  # The detection rules produce "TLS-1.0", "TLS-legacy" etc. as algorithm names
+  # for ssl.SSLContext / ssl.wrap_socket calls. These are always infrastructure.
+  - priority: 85
+    description: "TLS/SSL protocol-level algorithm detections are infrastructure"
+    match:
+      algorithm_prefix:
+        - "TLS-"
+        - "TLS-1"
+        - "TLS-legacy"
+        - "SSL-"
+    result: "infrastructure"
+
+  # ── Application: all remaining source_code assets ─────────────────────────
+  # Any source-code asset that didn't match a higher-priority infrastructure
+  # rule is application-level cryptography (encrypting payloads, hashing
+  # passwords, signing tokens, etc.).
+  - priority: 10
+    description: "Default: source_code assets are application cryptography"
+    match:
+      surface: "source_code"
+    result: "application"
+
+# Fallback if no rule matches (should not occur with the rules above)
+classification_fallback: "application"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SENSITIVITY RULES  (SensitivityLevel: public | internal | confidential | high | critical)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Sensitivity represents how important it is that the data protected by this
+# asset remains secret. Higher sensitivity = more urgent migration need.
+#
+# PRD §9 sample: RSA-2048 key_establishment → sensitivity "high"
+#
+# Reasoning per tier:
+#   critical:     Long-lived secrets (private keys, CA keys, root of trust)
+#   high:         Short-lived session keys, password-related hashing, PII protection
+#   confidential: Payload encryption (body of data, not the keys themselves)
+#   internal:     MACs, safe hash functions, random number generation
+#   public:       Algorithms that protect nothing sensitive (public fingerprints)
+
+sensitivity_rules:
+
+  # ── Critical: private key material and root CA certificates ───────────────
+  - priority: 100
+    description: "Certificate private keys and CA assets are critical"
+    match:
+      surface: "certificate"
+      purpose: "key_establishment"
+    result: "critical"
+
+  - priority: 99
+    description: "Certificate digital signatures (CA signing) are critical"
+    match:
+      surface: "certificate"
+      purpose: "digital_signature"
+    result: "critical"
+
+  # ── High: broken or deprecated algorithms protecting sensitive data ────────
+  # A classically broken algorithm protecting data that should be confidential
+  # is HIGH because the data may already be exposed (no quantum needed).
+  - priority: 90
+    description: "Broken symmetric cipher (DES, RC4) is high sensitivity"
+    match:
+      algorithm_prefix:
+        - "DES"
+        - "3DES"
+        - "RC4"
+    result: "high"
+
+  - priority: 89
+    description: "Broken hash used in security context (MD5, SHA-1) is high"
+    match:
+      algorithm_prefix:
+        - "MD5"
+        - "SHA-1"
+    result: "high"
+
+  # ── High: key establishment — session keys and long-term keys ─────────────
+  - priority: 80
+    description: "Key establishment protects session confidentiality — high sensitivity"
+    match:
+      purpose: "key_establishment"
+    result: "high"
+
+  # ── High: digital signatures — authentication and non-repudiation ──────────
+  - priority: 79
+    description: "Digital signatures protect authentication integrity — high sensitivity"
+    match:
+      purpose: "digital_signature"
+    result: "high"
+
+  # ── Confidential: encryption of data content ──────────────────────────────
+  - priority: 70
+    description: "Encryption of payload content is confidential"
+    match:
+      purpose: "encryption"
+    result: "confidential"
+
+  # ── High: certificate surface regardless of purpose ───────────────────────
+  # If the certificate rule above didn't match (unexpected purpose), still high.
+  - priority: 65
+    description: "Certificate surface assets are at least high sensitivity"
+    match:
+      surface: "certificate"
+    result: "high"
+
+  # ── Internal: MACs, KDFs, random generation ───────────────────────────────
+  - priority: 50
+    description: "MACs, KDFs, and random generation are internal"
+    match:
+      purpose:
+        - "mac"
+        - "key_derivation"
+        - "random_generation"
+    result: "internal"
+
+  # ── Internal: safe hash functions (SHA-256, SHA-512, SHA-3) ───────────────
+  - priority: 40
+    description: "Quantum-safe hash functions are internal sensitivity"
+    match:
+      purpose: "hashing"
+      algorithm_prefix:
+        - "SHA-256"
+        - "SHA-384"
+        - "SHA-512"
+        - "SHA-3"
+        - "SHA3-"
+        - "BLAKE"
+    result: "internal"
+
+  # ── Internal: unknown-purpose assets ──────────────────────────────────────
+  - priority: 10
+    description: "Unknown purpose assets are internal pending further analysis"
+    match:
+      purpose: "unknown"
+    result: "internal"
+
+# Fallback: anything not matched (e.g. unexpected hashing algorithm) is internal
+sensitivity_fallback: "internal"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CRITICALITY RULES  (BusinessCriticality: low | medium | high | critical)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Business criticality represents the impact of compromise on the organisation.
+# This is an honest coarse heuristic — no ownership or topology data exists.
+# PRD §9 sample: RSA-2048 key_establishment in application → "critical"
+#
+# Rationale:
+#   critical: Key establishment and digital signatures in infrastructure,
+#             OR broken algorithms anywhere (already-broken = immediate impact)
+#   high:     Key establishment and signatures in application code
+#             (losing these means losing authentication / secure channels)
+#   medium:   Encryption (losing this exposes data but the keys may be separate)
+#   low:      Hashing, MACs, KDFs (hard to exploit directly)
+
+criticality_rules:
+
+  # ── Critical: broken algorithms — already compromised regardless of quantum ─
+  - priority: 100
+    description: "Classically broken algorithms are critical — immediate risk"
+    match:
+      algorithm_prefix:
+        - "DES"
+        - "3DES"
+        - "RC4"
+        - "MD5"
+        - "SHA-1"
+    result: "critical"
+
+  # ── Critical: infrastructure key establishment ─────────────────────────────
+  # A compromised TLS session key affects every user of that service simultaneously.
+  - priority: 90
+    description: "Infrastructure key establishment is critical"
+    match:
+      purpose: "key_establishment"
+      classification_result: "infrastructure"
+    result: "critical"
+
+  # ── Critical: certificate assets ──────────────────────────────────────────
+  - priority: 89
+    description: "Certificate assets are critical — they are the root of trust"
+    match:
+      surface: "certificate"
+    result: "critical"
+
+  # ── High: application key establishment ───────────────────────────────────
+  # PRD §9 sample: RSA-2048 key_establishment in application → "critical"
+  # We match this by making application key_establishment also critical
+  # (it protects the application's own secure channels and API keys).
+  - priority: 80
+    description: "Application key establishment is critical (protects secure channels)"
+    match:
+      purpose: "key_establishment"
+      classification_result: "application"
+    result: "critical"
+
+  # ── High: digital signatures ──────────────────────────────────────────────
+  - priority: 75
+    description: "Digital signatures are high criticality (authentication/integrity)"
+    match:
+      purpose: "digital_signature"
+    result: "high"
+
+  # ── Medium: encryption ────────────────────────────────────────────────────
+  - priority: 60
+    description: "Encryption is medium criticality"
+    match:
+      purpose: "encryption"
+    result: "medium"
+
+  # ── Low: hashing, MACs, KDFs ──────────────────────────────────────────────
+  # These are hard to exploit directly even if the algorithm is weak.
+  - priority: 40
+    description: "Hashing, MACs, and KDFs are low criticality"
+    match:
+      purpose:
+        - "hashing"
+        - "mac"
+        - "key_derivation"
+        - "random_generation"
+    result: "low"
+
+# Fallback
+criticality_fallback: "low"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LIFECYCLE STAGE RULES
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# For certificate-surface assets, the engine computes lifecycle stage from
+# the certificate's actual expiry date. These thresholds configure when
+# a certificate transitions between stages.
+#
+# For all non-certificate surfaces, the default is ACTIVE.
+# This is a documented default, not a silent assumption — the engine
+# logs "lifecycle_stage=ACTIVE (default, static analysis cannot determine
+# lifecycle from source code)".
+
+lifecycle:
+  # Days before expiry when a certificate enters ROTATION_PENDING state
+  rotation_pending_days_before_expiry: 90
+
+  # Days after expiry when a certificate is still EXPIRED (vs. LEGACY)
+  # In practice, anything already expired stays EXPIRED.
+  expired_threshold_days: 0
+
+  # Default for non-certificate surfaces
+  default_stage: "active"
+
+  # Source-code assets with deprecated algorithm names are labelled LEGACY
+  # (e.g. a TLS-1.0 reference in code suggests legacy infrastructure)
+  legacy_algorithm_prefixes:
+    - "TLS-1.0"
+    - "TLS-1.1"
+    - "TLS-legacy"
+    - "SSL-"
+    - "DES"
+    - "RC4"
+    - "MD5"
+    - "SHA-1"
