@@ -43,9 +43,31 @@ app = FastAPI(
     description="Read-only advisory API backed by persistent ECDAT scan jobs.",
 )
 
+# CORS: allow the Vercel deployment origin(s) plus local dev.
+# VERCEL_URL is injected automatically by Vercel at runtime (no https:// prefix).
+# ALLOWED_ORIGINS can be set manually in Vercel env vars for custom domains.
+_vercel_url = os.environ.get("VERCEL_URL", "")
+_allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "")
+
+_origins: list[str] = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+if _vercel_url:
+    _origins.append(f"https://{_vercel_url}")
+if _allowed_origins_env:
+    _origins.extend(o.strip() for o in _allowed_origins_env.split(",") if o.strip())
+
+# When running under Vercel Services, frontend and backend share the same
+# domain — the browser sends requests from the Vercel deployment URL which
+# must be explicitly allowed. Allow all Vercel preview/production URLs by
+# matching the wildcard pattern when no explicit list is configured.
+_allow_all = not _vercel_url and not _allowed_origins_env
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"] if _allow_all else _origins,
+    allow_origin_regex=r"https://.*\.vercel\.app" if not _allow_all else None,
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
