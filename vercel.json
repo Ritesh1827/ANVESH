@@ -9,14 +9,14 @@
       }
     },
     {
-      "src": "backend/ecdat/api/app.py",
+      "src": "api/index.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/backend/ecdat/api/app.py"
+      "dest": "/api/index.py"
     },
     {
       "handle": "filesystem"
