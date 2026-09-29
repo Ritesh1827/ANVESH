@@ -1,7 +1,7 @@
 import { Link, NavLink, Outlet } from 'react-router-dom'
 
 function PublicLayout() {
-  return <div className="min-h-screen bg-canvas text-navy-950"><header className="border-t-4 border-saffron bg-white"><div className="mx-auto flex max-w-6xl items-center justify-between gap-5 px-5 py-5 sm:px-8"><Link to="/" className="text-xl font-bold tracking-tight">ECDAT</Link><nav className="flex items-center gap-4 text-sm font-semibold text-muted sm:gap-6"><NavLink to="/" end>Home</NavLink><NavLink to="/about">About ECDAT</NavLink><NavLink to="/why-cbom">Why CBOM</NavLink><Link to="/login" className="rounded-lg bg-navy-800 px-3 py-2 text-white">Sign in</Link></nav></div></header><main><Outlet /></main><footer className="border-t border-line bg-white py-6 text-center text-sm text-muted">ECDAT is a read-only cryptographic discovery and migration advisory tool.</footer></div>
+  return <div className="min-h-screen bg-canvas text-navy-950"><header className="border-t-4 border-saffron bg-white"><div className="mx-auto flex max-w-6xl items-center justify-between gap-5 px-5 py-5 sm:px-8"><Link to="/" className="text-xl font-bold tracking-tight">ANVESH</Link><nav className="flex items-center gap-4 text-sm font-semibold text-muted sm:gap-6"><NavLink to="/" end>Home</NavLink><NavLink to="/about">About ECDAT</NavLink><NavLink to="/why-cbom">Why CBOM</NavLink><Link to="/login" className="rounded-lg bg-navy-800 px-3 py-2 text-white">Sign in</Link></nav></div></header><main><Outlet /></main><footer className="border-t border-line bg-white py-6 text-center text-sm text-muted">ECDAT is a read-only cryptographic discovery and migration advisory tool.</footer></div>
 }
 
 export function HomePage() {
