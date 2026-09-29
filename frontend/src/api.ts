@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CryptoAsset, DashboardData, ReachabilitySummary, Roadmap, ScanMetadata } from './types'
 import { authHeaders, authStore } from './auth'
 
-const configuredApiUrl = (import.meta.env.VITE_ECDAT_API_URL ?? 'http://127.0.0.1:8000/api').replace(/\/$/, '')
+const configuredApiUrl = (import.meta.env.VITE_ECDAT_API_URL ?? '/api').replace(/\/$/, '')
 
 /** Server origin without the /api prefix (e.g. http://127.0.0.1:8000). */
 export const apiOrigin = configuredApiUrl.replace(/\/api\/?$/, '')
