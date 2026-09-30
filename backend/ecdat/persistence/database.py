@@ -53,8 +53,8 @@ def _sync_url(url: Optional[str]) -> str:
     parsed = urlparse(url)
     if parsed.scheme == "sqlite+aiosqlite":
         return urlunparse(parsed._replace(scheme="sqlite"))
-    if parsed.scheme in ("postgresql+asyncpg", "postgres"):
-        return urlunparse(parsed._replace(scheme="postgresql+psycopg2"))
+    if parsed.scheme in ("postgresql", "postgres", "postgresql+psycopg", "postgresql+psycopg2", "postgresql+asyncpg"):
+        return urlunparse(parsed._replace(scheme="postgresql+asyncpg"))
     return url
 
 
@@ -77,13 +77,16 @@ def _connection_options(sync_url: str) -> tuple[dict, dict]:
     """Backend-specific connection options.
 
     SQLite: single-threaded server access — disable the same-thread check.
-    PostgreSQL (incl. Supabase's session pooler on 5432): the pooler
-    requires TLS. asyncpg took `ssl=True`; the sync psycopg2 driver takes
-    `sslmode=require`. An unencrypted attempt fails at the pooler, so
-    encryption is forced here rather than left to driver defaults.
+    PostgreSQL (asyncpg): ssl context for encrypted connections (Supabase pooler).
     """
     if sync_url.startswith("sqlite"):
         return {"check_same_thread": False}, {}
+    if "asyncpg" in sync_url:
+        import ssl
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return {"ssl": ctx}, {"pool_pre_ping": True}
     if sync_url.startswith("postgresql") or sync_url.startswith("postgres"):
         return {"sslmode": "require"}, {"pool_pre_ping": True}
     return {}, {}
