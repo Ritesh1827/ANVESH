@@ -32,6 +32,10 @@ from ecdat.persistence.store import (
     write_upload_file,
 )
 
+import logging
+
+logger = logging.getLogger("uvicorn.error")
+
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 store = ScanStore(database_url=DATABASE_URL)
@@ -43,35 +47,60 @@ app = FastAPI(
     description="Read-only advisory API backed by persistent ECDAT scan jobs.",
 )
 
-# CORS: allow the Vercel deployment origin(s) plus local dev.
-# VERCEL_URL is injected automatically by Vercel at runtime (no https:// prefix).
-# ALLOWED_ORIGINS can be set manually in Vercel env vars for custom domains.
-_vercel_url = os.environ.get("VERCEL_URL", "")
-_allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "")
+# CORS: allow Vercel deployment origin(s), explicit ALLOWED_ORIGINS env var, and local dev.
+_vercel_url = os.environ.get("VERCEL_URL", "").strip().rstrip("/")
+_allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "").strip()
 
 _origins: list[str] = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 if _vercel_url:
-    _origins.append(f"https://{_vercel_url}")
-if _allowed_origins_env:
-    _origins.extend(o.strip() for o in _allowed_origins_env.split(",") if o.strip())
+    _url = _vercel_url if _vercel_url.startswith("http") else f"https://{_vercel_url}"
+    if _url not in _origins:
+        _origins.append(_url)
 
-# When running under Vercel Services, frontend and backend share the same
-# domain — the browser sends requests from the Vercel deployment URL which
-# must be explicitly allowed. Allow all Vercel preview/production URLs by
-# matching the wildcard pattern when no explicit list is configured.
-_allow_all = not _vercel_url and not _allowed_origins_env
+if _allowed_origins_env:
+    for raw in _allowed_origins_env.split(","):
+        item = raw.strip().rstrip("/")
+        if not item:
+            continue
+        if not item.startswith("http://") and not item.startswith("https://"):
+            item = f"https://{item}"
+        if item not in _origins:
+            _origins.append(item)
+
+# Allow any Vercel project deployment subdomain:
+# e.g. anvesh-iota.vercel.app, anvesh-h9h4pvvuu-ritesh1827s-projects.vercel.app, anvesh.vercel.app
+CORS_ALLOW_ORIGIN_REGEX = r"https://anvesh(-[a-zA-Z0-9-]+)?\.vercel\.app"
+
+logger.info(f"CORS allowed origins: {_origins}")
+logger.info(f"CORS allow origin regex: {CORS_ALLOW_ORIGIN_REGEX}")
+print(f"CORS allowed origins: {_origins}", flush=True)
+print(f"CORS allow origin regex: {CORS_ALLOW_ORIGIN_REGEX}", flush=True)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if _allow_all else _origins,
-    allow_origin_regex=r"https://.*\.vercel\.app" if not _allow_all else None,
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_origins=_origins,
+    allow_origin_regex=CORS_ALLOW_ORIGIN_REGEX,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+
+@app.get("/api/cors-info")
+def get_cors_info() -> dict[str, Any]:
+    """Returns active CORS configuration for verification."""
+    return {
+        "allowed_origins": _origins,
+        "allow_origin_regex": CORS_ALLOW_ORIGIN_REGEX,
+        "allowed_origins_env": os.environ.get("ALLOWED_ORIGINS", ""),
+        "vercel_url_env": os.environ.get("VERCEL_URL", ""),
+    }
+
 
 
 class RunScanRequest(BaseModel):
