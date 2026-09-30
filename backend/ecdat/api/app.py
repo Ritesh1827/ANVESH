@@ -237,6 +237,10 @@ def register(request: RegisterRequest) -> dict:
     except AuthError as exc:
         status = 409 if "already exists" in str(exc) else 400
         raise HTTPException(status_code=status, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Register endpoint error: %s", exc)
+        print(f"Register endpoint error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Internal auth error: {exc}") from exc
 
 
 @app.post("/api/auth/login")
@@ -246,6 +250,10 @@ def login(request: LoginRequest) -> dict:
         return auth_store.login(request.email, request.password)
     except AuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Login endpoint error: %s", exc)
+        print(f"Login endpoint error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Internal auth error: {exc}") from exc
 
 
 @app.post("/api/auth/logout")
