@@ -69,15 +69,11 @@ class AuthStore:
         self._lock = threading.Lock()
 
     def _ensure_tables(self) -> None:
-        from sqlalchemy.exc import OperationalError
-
         try:
             with database.session() as session:
                 session.execute(UserRecord.__table__.select().limit(1))
-        except OperationalError:
+        except Exception:
             database.init_db_sync()
-        except Exception:  # noqa: BLE001 — table probe only
-            pass
 
     def register(self, email: str, password: str) -> dict:
         cleaned = normalise_email(email)
