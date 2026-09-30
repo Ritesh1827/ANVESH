@@ -18,7 +18,7 @@ Reference: PRD §5 stage 2 (Source & Binary Discovery — deterministic findings
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -318,6 +318,10 @@ class DirectoryScanResult:
     files_skipped: int
     total_lines: int
     total_matches: int
+    # Languages whose files were present but skipped because the
+    # tree-sitter grammar package is not installed. Surfaced as a scan
+    # warning instead of silently reporting the file as skipped.
+    missing_grammars: list[str] = field(default_factory=list)
 
     @property
     def all_raw_matches(self) -> list[RawMatch]:
@@ -360,6 +364,7 @@ def scan_directory(
 
     file_results: list[FileScanResult] = []
     files_skipped = 0
+    missing_grammars: set[str] = set()
 
     # Walk the directory tree
     for item in sorted(root_path.rglob("*")):
@@ -370,8 +375,21 @@ def scan_directory(
             continue
 
         # Only attempt files with supported extensions
-        if item.suffix.lower() not in EXTENSION_TO_LANGUAGE:
+        language = EXTENSION_TO_LANGUAGE.get(item.suffix.lower())
+        if language is None:
             files_skipped += 1
+            continue
+
+        # A supported file whose grammar is unavailable is NOT a silent
+        # skip: record the missing grammar so the scan reports a warning
+        # instead of completing with zero findings and no explanation.
+        if _get_language(language) is None:
+            files_skipped += 1
+            missing_grammars.add(language)
+            logger.warning(
+                "Skipping %s: tree-sitter grammar '%s' is not installed",
+                item, language,
+            )
             continue
 
         result = scan_file(
@@ -390,9 +408,10 @@ def scan_directory(
 
     logger.info(
         "Directory scan complete: %s — %d files scanned, %d skipped, "
-        "%d total matches across %d lines",
+        "%d total matches across %d lines%s",
         root_path, len(file_results), files_skipped,
         total_matches, total_lines,
+        f" (missing grammars: {sorted(missing_grammars)})" if missing_grammars else "",
     )
 
     return DirectoryScanResult(
@@ -402,4 +421,5 @@ def scan_directory(
         files_skipped=files_skipped,
         total_lines=total_lines,
         total_matches=total_matches,
+        missing_grammars=sorted(missing_grammars),
     )

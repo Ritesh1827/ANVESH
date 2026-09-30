@@ -305,18 +305,35 @@ class DiscoveryCompletenessEngine:
                 continue
 
             if surface == "source_code":
-                # Use DirectoryScanResult for detailed source metrics
-                coverages.append(SurfaceCoverage(
-                    surface=surface,
-                    status=SurfaceStatus.SCANNED,
-                    files_scanned=self._scan_result.files_scanned,
-                    files_skipped=self._scan_result.files_skipped,
-                    assets_found=assets_by_surface.get(surface, 0),
-                    notes=(
+                # Use DirectoryScanResult for detailed source metrics.
+                # Missing tree-sitter grammars are an explicit warning:
+                # the scan would otherwise complete with zero findings
+                # and no explanation.
+                missing = list(getattr(
+                    self._scan_result, "missing_grammars", []) or [])
+                if missing:
+                    status = SurfaceStatus.SKIPPED
+                    note = (
+                        f"{self._scan_result.total_lines:,} lines scanned, "
+                        f"{self._scan_result.files_skipped} files skipped. "
+                        f"Missing tree-sitter grammar(s): {', '.join(missing)}. "
+                        "Install the corresponding tree-sitter-* package(s) "
+                        "and re-run the scan."
+                    )
+                else:
+                    status = SurfaceStatus.SCANNED
+                    note = (
                         f"{self._scan_result.total_lines:,} lines scanned, "
                         f"{self._scan_result.files_skipped} files skipped "
                         f"(unsupported extension or no grammar)."
-                    ),
+                    )
+                coverages.append(SurfaceCoverage(
+                    surface=surface,
+                    status=status,
+                    files_scanned=self._scan_result.files_scanned,
+                    files_skipped=self._scan_result.files_skipped,
+                    assets_found=assets_by_surface.get(surface, 0),
+                    notes=note,
                 ))
             else:
                 coverages.append(SurfaceCoverage(

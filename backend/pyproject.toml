@@ -18,7 +18,14 @@ dependencies = [
     # ── Source parsing (Day 2–3) ─────────────────────────────────────────────
     # Multi-language AST analysis; avoids regex false-positives (PRD §8).
     "tree-sitter>=0.23,<1",
-    # Language grammars installed separately as needed (tree-sitter-python, etc.)
+    # Language grammars — every scanner-supported language MUST be declared
+    # here. An undeclared grammar is silently absent in production (Render
+    # installs only declared deps), which yields complete + 0 assets for
+    # that language with no obvious failure.
+    "tree-sitter-python>=0.25,<1",
+    "tree-sitter-c>=0.24,<1",
+    "tree-sitter-java>=0.23,<1",
+    "tree-sitter-javascript>=0.25,<1",
 
     # ── Binary analysis (Day 6) ──────────────────────────────────────────────
     # ELF/PE symbol and import extraction (PRD §8).

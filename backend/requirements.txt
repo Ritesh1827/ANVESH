@@ -1,6 +1,10 @@
 pydantic>=2.7,<3
 pydantic-settings>=2.3,<3
 tree-sitter>=0.23,<1
+tree-sitter-python>=0.25,<1
+tree-sitter-c>=0.24,<1
+tree-sitter-java>=0.23,<1
+tree-sitter-javascript>=0.25,<1
 pyelftools>=0.31,<1
 cryptography>=42,<44
 detect-secrets>=1.5,<2

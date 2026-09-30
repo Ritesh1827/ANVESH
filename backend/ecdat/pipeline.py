@@ -166,6 +166,11 @@ class PipelineResult:
             f"  Files skipped   : {self.scan_result.files_skipped}",
             f"  Lines scanned   : {self.scan_result.total_lines:,}",
             f"  Raw matches     : {self.scan_result.total_matches}",
+            *([
+                "  WARNING         : missing tree-sitter grammar(s): "
+                f"{', '.join(getattr(self.scan_result, 'missing_grammars', []) or [])}. "
+                "Install the tree-sitter-* package(s) and re-run the scan."
+            ] if getattr(self.scan_result, "missing_grammars", None) else []),
             "",
             "Inventory",
             f"  Unique assets   : {s.unique_assets}",
