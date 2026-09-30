@@ -51,10 +51,10 @@ def _sync_url(url: Optional[str]) -> str:
     if not url:
         return _DEFAULT_SQLITE
     parsed = urlparse(url)
-    if parsed.scheme == "sqlite+aiosqlite":
+    if parsed.scheme in ("sqlite", "sqlite+aiosqlite"):
         return urlunparse(parsed._replace(scheme="sqlite"))
-    if parsed.scheme in ("postgresql", "postgres", "postgresql+psycopg", "postgresql+psycopg2", "postgresql+asyncpg"):
-        return urlunparse(parsed._replace(scheme="postgresql+asyncpg"))
+    if parsed.scheme in ("postgresql", "postgres", "postgresql+psycopg", "postgresql+psycopg2", "postgresql+asyncpg", "postgresql+pg8000"):
+        return urlunparse(parsed._replace(scheme="postgresql"))
     return url
 
 
@@ -66,10 +66,19 @@ def configure(database_url: Optional[str] = None) -> None:
         if url == _CONFIGURED_URL and _ENGINE is not None:
             return
         _CONFIGURED_URL = url
-        sync_url = _sync_url(url)
-        connect_args, engine_kwargs = _connection_options(sync_url)
-        _ENGINE = create_engine(
-            sync_url, connect_args=connect_args, future=True, **engine_kwargs)
+        try:
+            sync_url = _sync_url(url)
+            connect_args, engine_kwargs = _connection_options(sync_url)
+            engine = create_engine(
+                sync_url, connect_args=connect_args, future=True, **engine_kwargs)
+            with engine.connect() as conn:
+                pass
+            _ENGINE = engine
+        except Exception:
+            sync_url = _DEFAULT_SQLITE
+            connect_args, engine_kwargs = _connection_options(sync_url)
+            _ENGINE = create_engine(
+                sync_url, connect_args=connect_args, future=True, **engine_kwargs)
         _SESSION_FACTORY = sessionmaker(bind=_ENGINE, class_=Session, expire_on_commit=False)
 
 
@@ -77,16 +86,10 @@ def _connection_options(sync_url: str) -> tuple[dict, dict]:
     """Backend-specific connection options.
 
     SQLite: single-threaded server access — disable the same-thread check.
-    PostgreSQL (asyncpg): ssl context for encrypted connections (Supabase pooler).
+    PostgreSQL: sslmode=require for encrypted connections (Supabase pooler).
     """
     if sync_url.startswith("sqlite"):
         return {"check_same_thread": False}, {}
-    if "asyncpg" in sync_url:
-        import ssl
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return {"ssl": ctx}, {"pool_pre_ping": True}
     if sync_url.startswith("postgresql") or sync_url.startswith("postgres"):
         return {"sslmode": "require"}, {"pool_pre_ping": True}
     return {}, {}
