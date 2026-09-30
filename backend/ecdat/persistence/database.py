@@ -53,7 +53,7 @@ def _sync_url(url: Optional[str]) -> str:
     parsed = urlparse(url)
     if parsed.scheme == "sqlite+aiosqlite":
         return urlunparse(parsed._replace(scheme="sqlite"))
-    if parsed.scheme == "postgresql+asyncpg":
+    if parsed.scheme in ("postgresql+asyncpg", "postgres"):
         return urlunparse(parsed._replace(scheme="postgresql+psycopg2"))
     return url
 
@@ -84,7 +84,7 @@ def _connection_options(sync_url: str) -> tuple[dict, dict]:
     """
     if sync_url.startswith("sqlite"):
         return {"check_same_thread": False}, {}
-    if sync_url.startswith("postgresql"):
+    if sync_url.startswith("postgresql") or sync_url.startswith("postgres"):
         return {"sslmode": "require"}, {"pool_pre_ping": True}
     return {}, {}
 
