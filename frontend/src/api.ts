@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CryptoAsset, DashboardData, ReachabilitySummary, Roadmap, ScanMetadata } from './types'
 import { authHeaders, authStore } from './auth'
 
@@ -246,15 +246,18 @@ export function notifyDataUpdated(): void {
 export function useApiResource<T>(load: () => Promise<T>): { data: T | null; loading: boolean; error: string | null; reload: () => void } {
   const [state, setState] = useState<{ data: T | null; loading: boolean; error: string | null }>({ data: null, loading: true, error: null })
   const [refreshKey, setRefreshKey] = useState(0)
+  const loadRef = useRef(load)
+  loadRef.current = load
 
   useEffect(() => {
     let cancelled = false
     setState((current) => ({ ...current, loading: true, error: null }))
-    load()
+    loadRef.current()
       .then((data) => !cancelled && setState({ data, loading: false, error: null }))
       .catch((error: Error) => !cancelled && setState({ data: null, loading: false, error: error.message }))
     return () => { cancelled = true }
-  }, [load, refreshKey])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey])
 
   useEffect(() => {
     const onUpdate = () => setRefreshKey((value) => value + 1)

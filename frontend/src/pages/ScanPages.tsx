@@ -180,9 +180,10 @@ export function NewScanPage() {
 export function ScansPage() {
   const { data, loading, error, reload } = useApiResource(ecdatApi.scans)
   useEffect(() => {
+    if (data) return
     const timer = window.setInterval(reload, 4000)
     return () => window.clearInterval(timer)
-  }, [reload])
+  }, [data, reload])
   if (loading) return <LoadingState />
   if (error) return <ErrorState message={error} />
   const items: ScanListItem[] = data?.items ?? []
