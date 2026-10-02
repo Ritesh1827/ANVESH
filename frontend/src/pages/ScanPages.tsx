@@ -213,11 +213,30 @@ export function ScanDetailPage({ scanId }: { scanId: string }) {
   const [diff, setDiff] = useState<{ new_assets: string[]; removed_assets: string[]; changed_assets: string[] } | null>(null)
   const [diffError, setDiffError] = useState<string | null>(null)
   const { data: history } = useApiResource(ecdatApi.scans)
+  const { data: enrichment, reload: reloadEnrichment } = useApiResource(() => ecdatApi.enrichmentStatus(scanId))
+  const [enriching, setEnriching] = useState(false)
+  const [enrichResult, setEnrichResult] = useState<{ enriched: number; still_ambiguous: number; failed: number; errors: string[] } | null>(null)
+  const [enrichError, setEnrichError] = useState<string | null>(null)
   const runDiff = async () => {
     if (!baseline) return
     setDiffError(null)
     try { setDiff(await ecdatApi.cbomDiff(scanId, baseline)) }
     catch (reason) { setDiffError(reason instanceof Error ? reason.message : 'Diff failed.') }
+  }
+  const runEnrichment = async () => {
+    setEnriching(true)
+    setEnrichError(null)
+    setEnrichResult(null)
+    try {
+      const result = await ecdatApi.enrichAmbiguous(scanId)
+      setEnrichResult(result)
+      notifyDataUpdated()
+      reloadEnrichment()
+    } catch (reason) {
+      setEnrichError(reason instanceof Error ? reason.message : 'AI enrichment failed.')
+    } finally {
+      setEnriching(false)
+    }
   }
   if (loading) return <LoadingState />
   if (error) return <ErrorState message={error} />
@@ -243,6 +262,42 @@ export function ScanDetailPage({ scanId }: { scanId: string }) {
         <a href={apiUrl(`/api/scans/${current.scan_id}/reports/migration.txt`)}><Button variant="secondary">Migration report</Button></a>
         <a href={apiUrl(`/api/scans/${current.scan_id}/reports/certificates.txt`)}><Button variant="secondary">Certificate report</Button></a>
       </div>
+    </Card>
+    <Card className="mt-5 p-6">
+      <h2 className="font-bold">AI enrichment</h2>
+      <p className="mt-1 text-sm text-muted">
+        Ambiguous findings (unknown purpose, deterministic evidence only) can be sent to the
+        configured LLM for purpose classification. Deterministic findings are never sent.
+        Original evidence is always preserved; failures leave findings unchanged.
+      </p>
+      {enrichment && (enrichment.ambiguous_eligible > 0 || enrichment.already_enriched > 0) ? (
+        <div className="mt-4 space-y-3 text-sm">
+          <p className="text-muted">
+            {enrichment.ambiguous_eligible} ambiguous finding(s) eligible
+            {enrichment.already_enriched > 0 && ` · ${enrichment.already_enriched} already AI-enriched`}
+          </p>
+          <div>
+            <Button onClick={() => void runEnrichment()} disabled={enriching || enrichment.ambiguous_eligible === 0}>
+              {enriching ? 'AI enrichment in progress…' : 'AI enrich ambiguous findings'}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-muted">
+          {enrichment ? 'No ambiguous findings in this scan — nothing to enrich.' : 'Loading enrichment status…'}
+        </p>
+      )}
+      {enrichError && <p className="mt-3 text-sm text-critical">{enrichError}</p>}
+      {enrichResult && (
+        <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-3">
+          <div><dt className="table-label">Enriched</dt><dd className="mt-1 text-muted">{enrichResult.enriched}</dd></div>
+          <div><dt className="table-label">Still ambiguous</dt><dd className="mt-1 text-muted">{enrichResult.still_ambiguous}</dd></div>
+          <div><dt className="table-label">Failed (preserved)</dt><dd className="mt-1 text-muted">{enrichResult.failed}</dd></div>
+        </dl>
+      )}
+      {enrichResult && enrichResult.errors.length > 0 && (
+        <p className="mt-3 text-sm text-warning">AI enrichment could not complete for some findings. Original findings have been preserved. {enrichResult.errors.join(' ')}</p>
+      )}
     </Card>
     <Card className="mt-5 p-6">
       <h2 className="font-bold">CBOM version diff</h2>

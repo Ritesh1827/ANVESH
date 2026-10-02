@@ -378,6 +378,90 @@ def scan_detail(scan_id: str) -> dict:
     return _get_scan_or_404(scan_id)
 
 
+class EnrichRequest(BaseModel):
+    """Manual post-scan AI enrichment of a completed scan's ambiguous findings."""
+
+    force: bool = False
+
+
+def _scan_owner_or_404(scan_id: str, request: Request) -> tuple[dict, Optional[str]]:
+    """Load a scan and enforce ownership; returns (scan, user_id-or-None)."""
+    scan = _get_scan_or_404(scan_id)
+    user = _maybe_user(request)
+    owner_id = scan.get("user_id")
+    caller_id = user["user_id"] if user else None
+    if owner_id is not None and caller_id != owner_id:
+        raise HTTPException(status_code=403, detail="Scan belongs to another user.")
+    return scan, caller_id
+
+
+@app.get("/api/scans/{scan_id}/enrichment")
+def enrichment_status(scan_id: str, request: Request) -> dict:
+    """Report ambiguous/enriched counts for a scan without calling the LLM."""
+    from ecdat.llm.llm_enrichment import _is_ambiguous
+    from ecdat.schemas import CryptoAsset
+
+    scan, _ = _scan_owner_or_404(scan_id, request)
+    if scan["status"] not in ("complete", "partial"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Scan {scan_id} is {scan['status']}: {scan.get('stage') or ''}",
+        )
+    try:
+        _, stored = store.get_assets(scan_id)
+    except KeyError:
+        raise _not_found(scan_id) from None
+    eligible = 0
+    enriched = 0
+    for item in stored:
+        try:
+            asset = CryptoAsset.model_validate(item)
+        except Exception:
+            continue
+        if asset.evidence.finding_type.value == "llm_enriched":
+            enriched += 1
+        elif _is_ambiguous(asset):
+            eligible += 1
+    return {
+        "scan_id": scan_id,
+        "status": scan["status"],
+        "total_assets": len(stored),
+        "ambiguous_eligible": eligible,
+        "already_enriched": enriched,
+        "llm_enrichment_requested": scan.get("llm_enrichment_requested", False),
+    }
+
+
+@app.post("/api/scans/{scan_id}/enrich", status_code=202)
+def enrich_scan(scan_id: str, request: Request, body: Optional[EnrichRequest] = None) -> dict:
+    """Enrich a completed scan's ambiguous findings via the LLM pipeline.
+
+    Authenticated like every other scan operation: anonymous scans (user_id
+    None) stay enrichable anonymously; owned scans require the owner's
+    bearer token. Only ambiguous findings reach the LLM; deterministic
+    findings are never sent. Failures preserve originals.
+    """
+    from ecdat.persistence.store import ScanInputError
+
+    scan, caller_id = _scan_owner_or_404(scan_id, request)
+    if scan["status"] not in ("complete", "partial"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Scan {scan_id} is {scan['status']}; enrichment needs a completed scan.",
+        )
+    try:
+        result = store.enrich_scan_ambiguous(scan_id, user_id=caller_id)
+    except KeyError:
+        raise _not_found(scan_id) from None
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Scan belongs to another user.") from None
+    except ScanInputError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover - defensive HTTP translation
+        raise HTTPException(status_code=500, detail=f"Enrichment failed: {exc}") from exc
+    return result
+
+
 @app.get("/api/dashboard")
 def dashboard(scan_id: Optional[str] = None) -> dict:
     """Return overview metrics, priority counts, findings, and completeness.

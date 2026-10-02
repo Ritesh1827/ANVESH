@@ -442,6 +442,162 @@ class ScanStore:
             record.completed_at = _now()
             session.commit()
 
+    def enrich_scan_ambiguous(
+        self, scan_id: str, *, user_id: Optional[str] = None
+    ) -> dict:
+        """Enrich a completed scan's ambiguous findings via the LLM pipeline.
+
+        Only assets with purpose=UNKNOWN, finding_type=DETERMINISTIC, and a
+        snippet are sent to the LLM (the engine's own gate). Deterministic
+        findings are never touched. Enriched assets flow back through the
+        same downstream stages as a fresh scan (classification → ownership →
+        reachability → completeness → mosca → recommendations → migration →
+        CBOM) so risk/priority/recommendation stay consistent with the new
+        purpose. Originals are preserved on any failure; the scan only
+        transitions back to complete/partial, never to failed.
+        """
+        from ecdat.engines.classification_engine import ClassificationEngine
+        from ecdat.engines.completeness_engine import DiscoveryCompletenessEngine
+        from ecdat.engines.migration_impact import MigrationImpactEngine
+        from ecdat.engines.mosca_engine import MoscaEngine
+        from ecdat.engines.ownership_engine import apply_ownership
+        from ecdat.engines.recommendation_engine import RecommendationEngine
+        from ecdat.llm.llm_enrichment import LLMEnrichmentEngine, _is_ambiguous
+        from ecdat.schemas import CryptoAsset
+
+        with self._session() as session:
+            record = session.get(ScanRecord, scan_id)
+            if record is None:
+                raise KeyError(scan_id)
+            if user_id is not None and record.user_id not in (None, user_id):
+                raise PermissionError(scan_id)
+            if record.status not in (STATUS_COMPLETE, STATUS_PARTIAL):
+                raise ScanInputError(
+                    f"Scan {scan_id} is {record.status}; enrichment needs a "
+                    "completed scan."
+                )
+            surfaces = list(record.scanned_surfaces or ["source_code"])
+        self._transition(scan_id, STATUS_RUNNING, "LLM enrichment", started=False)
+
+        try:
+            _, stored = self.get_assets(scan_id)
+            assets = [CryptoAsset.model_validate(item) for item in stored]
+            eligible = [a for a in assets if _is_ambiguous(a)]
+            already = sum(
+                1 for a in assets
+                if a.evidence.finding_type.value == "llm_enriched"
+            )
+            if not eligible:
+                self._transition(scan_id, STATUS_COMPLETE, "complete", finished=True)
+                return {
+                    "scan_id": scan_id,
+                    "eligible": 0,
+                    "attempted": 0,
+                    "enriched": 0,
+                    "still_ambiguous": 0,
+                    "already_enriched": already,
+                    "failed": 0,
+                    "errors": [],
+                }
+            engine = LLMEnrichmentEngine.from_env()
+            if not engine._client._config.is_configured:
+                self._transition(scan_id, STATUS_COMPLETE, "complete", finished=True)
+                return {
+                    "scan_id": scan_id,
+                    "eligible": len(eligible),
+                    "attempted": 0,
+                    "enriched": 0,
+                    "still_ambiguous": len(eligible),
+                    "already_enriched": already,
+                    "failed": len(eligible),
+                    "errors": ["LLM provider is not configured on the server."],
+                }
+            enriched_assets = engine.process(assets)
+            stats = engine.stats
+
+            # Re-run the deterministic downstream stages so the enriched
+            # purposes feed classification, risk, and recommendations.
+            # Reachability is NOT recomputed here: rebuilding a call graph
+            # needs the original source files, and recomputing from nothing
+            # would wipe real reachable True/False values to None. Assets
+            # keep the reachable values persisted from the original scan.
+            enriched_assets = ClassificationEngine().process(enriched_assets)
+            enriched_assets = apply_ownership(enriched_assets)
+            reach_report = None
+            with self._session() as session:
+                rec = session.get(ScanRecord, scan_id)
+                if rec is not None and rec.reachability:
+                    reach_report = rec.reachability
+            with self._session() as session:
+                rec = session.get(ScanRecord, scan_id)
+                prior = rec.completeness if rec is not None else None
+            completeness = DiscoveryCompletenessEngine(
+                scan_result=_prior_scan_result(prior, len(enriched_assets)),
+                assets=enriched_assets,
+                scanned_surfaces=surfaces,
+            ).compute()
+            enriched_assets = MoscaEngine().process(enriched_assets)
+            enriched_assets = RecommendationEngine().process(enriched_assets)
+            _, migration_roadmaps = MigrationImpactEngine().process(enriched_assets)
+
+            from ecdat.pipeline import PipelineResult
+            from ecdat.engines.inventory import CryptoAssetInventory
+
+            partial = PipelineResult(
+                scan_id=scan_id,
+                target_path=Path("."),
+                scan_result=_prior_scan_result(prior, len(enriched_assets)),
+                inventory=CryptoAssetInventory(scan_id=scan_id),
+                rules_loaded=0,
+                scored_assets=enriched_assets,
+                reachability_report=None,
+                completeness=completeness,
+                migration_roadmaps=dict(migration_roadmaps),
+                completed_stages=["llm_enrichment", "re_enrichment"],
+            )
+            self._persist_result(scan_id, partial, surfaces)
+            if reach_report is not None:
+                with self._session() as session:
+                    rec = session.get(ScanRecord, scan_id)
+                    if rec is not None:
+                        rec.reachability = reach_report
+                        session.commit()
+            self._transition(scan_id, STATUS_COMPLETE, "complete", finished=True)
+            errors: list[str] = []
+            if stats.failed:
+                errors.append(
+                    f"{stats.failed} ambiguous finding(s) could not be enriched; "
+                    "originals preserved."
+                )
+            still = sum(1 for a in enriched_assets if _is_ambiguous(a))
+            return {
+                "scan_id": scan_id,
+                "eligible": len(eligible),
+                "attempted": stats.ambiguous_attempted,
+                "enriched": stats.enriched,
+                "still_ambiguous": still,
+                "already_enriched": already,
+                "failed": stats.failed,
+                "errors": errors,
+            }
+        except ScanInputError:
+            raise
+        except (KeyError, PermissionError):
+            raise
+        except Exception as exc:  # noqa: BLE001 — originals already persisted
+            logger.exception("Scan %s enrichment failed", scan_id)
+            self._transition(scan_id, STATUS_COMPLETE, "complete", finished=True)
+            return {
+                "scan_id": scan_id,
+                "eligible": 0,
+                "attempted": 0,
+                "enriched": 0,
+                "still_ambiguous": 0,
+                "already_enriched": 0,
+                "failed": 0,
+                "errors": [f"Enrichment failed: {exc}".strip()[:500]],
+            }
+
     def _persist_result(
         self, scan_id: str, result: PipelineResult, surfaces: list[str],
         partial: bool = False,
@@ -1003,6 +1159,47 @@ class ScanStore:
             ]
             lines.append("")
         return row, "\n".join(lines)
+
+
+def _prior_scan_result(prior: Optional[dict], asset_count: int):
+    """Completeness input for post-scan re-enrichment.
+
+    Completeness only reads files_scanned/files_skipped/total_lines/
+    total_matches/missing_grammars/file_results from the scan result.
+    The original scan's persisted completeness summary already carries
+    the true counters, so replay them instead of zeroing them (which
+    would corrupt the pipeline report and completeness notes).
+    """
+    from dataclasses import dataclass as _dataclass
+    from dataclasses import field as _field
+
+    @_dataclass
+    class _Prior:
+        files_scanned: int = 0
+        files_skipped: int = 0
+        total_lines: int = 0
+        total_matches: int = 0
+        missing_grammars: list = _field(default_factory=list)
+        file_results: list = _field(default_factory=list)
+        root_path: Path = Path(".")
+
+    if not prior:
+        return _Prior()
+    detail = None
+    for entry in prior.get("surface_detail") or []:
+        if entry.get("surface") == "source_code":
+            detail = entry
+            break
+    if detail is None:
+        return _Prior()
+    return _Prior(
+        files_scanned=int(detail.get("files_scanned") or 0),
+        files_skipped=0,
+        total_lines=0,
+        total_matches=int(prior.get("total_raw_findings") or asset_count),
+        missing_grammars=[],
+        file_results=[],
+    )
 
 
 def _resolve_inputs(

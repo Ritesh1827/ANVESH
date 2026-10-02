@@ -177,6 +177,30 @@ export const ecdatApi = {
     request<{ ok: boolean }>(`/ownership/rules/${ruleId}`, { method: 'DELETE' }),
   cbomDiff: (scanId: string, baselineScanId: string) =>
     request<CbVersionDiff>(`/scans/${scanId}/cbom/diff?baseline_scan_id=${encodeURIComponent(baselineScanId)}`),
+  enrichmentStatus: (scanId: string) =>
+    request<EnrichmentStatus>(`/scans/${scanId}/enrichment`),
+  enrichAmbiguous: (scanId: string) =>
+    request<EnrichmentResult>(`/scans/${scanId}/enrich`, { method: 'POST', body: JSON.stringify({}) }),
+}
+
+export interface EnrichmentStatus {
+  scan_id: string
+  status: string
+  total_assets: number
+  ambiguous_eligible: number
+  already_enriched: number
+  llm_enrichment_requested: boolean
+}
+
+export interface EnrichmentResult {
+  scan_id: string
+  eligible: number
+  attempted: number
+  enriched: number
+  still_ambiguous: number
+  already_enriched: number
+  failed: number
+  errors: string[]
 }
 
 export interface CbomResponse {
