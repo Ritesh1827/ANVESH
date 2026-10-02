@@ -277,6 +277,18 @@ def health() -> dict:
     return {"status": "ok", "service": "ecdat", "version": __version__}
 
 
+@app.get("/api/db-status")
+def db_status() -> dict:
+    """Safe database identity for production diagnosis.
+
+    Reports dialect, masked host, database name, current schema, and
+    whether the SQLite fallback is active. Never includes credentials.
+    """
+    from ecdat.persistence import database
+
+    return {"database": database.database_identity()}
+
+
 @app.post("/api/uploads", status_code=201)
 def create_upload() -> dict:
     """Create a staging area for source-tree or certificate file uploads."""
