@@ -60,9 +60,15 @@ dependencies = [
     "python-multipart>=0.0.18,<1",
 
     # ── Database (Day 9) ─────────────────────────────────────────────────────
-    # PostgreSQL async driver + SQLAlchemy ORM (PRD §8).
+    # PostgreSQL sync driver + SQLAlchemy ORM (PRD §8).
+    # database.py normalises every Postgres URL to bare "postgresql://",
+    # which SQLAlchemy resolves to the psycopg (v3) dialect — so psycopg
+    # is the REQUIRED sync driver in production. psycopg2-binary stays as
+    # a fallback for tooling (alembic env prefers it when importable).
     # SQLite via aiosqlite is the zero-ops default for scan-job persistence.
     "sqlalchemy>=2.0,<3",
+    "psycopg[binary]>=3.1,<4",
+    "psycopg2-binary>=2.9,<3",
     "asyncpg>=0.29,<1",
     "aiosqlite>=0.19,<1",
     "alembic>=1.13,<2",
