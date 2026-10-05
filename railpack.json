@@ -6,6 +6,15 @@
   },
   "steps": {
     "install": {
+      "inputs": [
+        {
+          "step": "packages:mise"
+        },
+        {
+          "local": true,
+          "include": ["."]
+        }
+      ],
       "commands": [
         "cd backend && pip install -e ."
       ]
