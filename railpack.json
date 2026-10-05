@@ -16,11 +16,19 @@
         }
       ],
       "commands": [
-        "cd backend && pip install -e ."
+        "python -m venv /app/.venv",
+        "/app/.venv/bin/pip install --upgrade pip setuptools",
+        "/app/.venv/bin/pip install -e /app/backend"
+      ],
+      "deployOutputs": [
+        ".venv"
       ]
     }
   },
   "deploy": {
-    "startCommand": "cd backend && uvicorn ecdat.api.app:app --host 0.0.0.0 --port $PORT"
+    "paths": [
+      "/app/.venv/bin"
+    ],
+    "startCommand": "/app/.venv/bin/python -m uvicorn ecdat.api.app:app --host 0.0.0.0 --port $PORT"
   }
 }
