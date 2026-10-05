@@ -6,7 +6,9 @@
   },
   "steps": {
     "install": {
-      "commands": ["pip install -e backend"]
+      "commands": [
+        "pip install -e ./backend"
+      ]
     }
   },
   "deploy": {
