@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "provider": "python",
+  "packages": {
+    "python": "3.13"
+  },
+  "steps": {
+    "install": {
+      "commands": ["pip install -e backend"]
+    }
+  },
+  "deploy": {
+    "startCommand": "uvicorn ecdat.api.app:app --host 0.0.0.0 --port $PORT"
+  }
+}
