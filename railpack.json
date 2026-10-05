@@ -21,7 +21,9 @@
         "/app/.venv/bin/pip install -e /app/backend"
       ],
       "deployOutputs": [
-        ".venv"
+        {
+          "include": [".venv"]
+        }
       ]
     }
   },
